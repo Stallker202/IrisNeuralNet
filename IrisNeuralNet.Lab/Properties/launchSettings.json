@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "IrisNeuralNet.Lab": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}

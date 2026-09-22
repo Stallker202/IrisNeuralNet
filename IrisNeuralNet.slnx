@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="IrisNeuralNet.Benchmarks/IrisNeuralNet.Benchmarks.csproj" />
+  <Project Path="IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj" />
+  <Project Path="IrisNeuralNet.Tests/IrisNeuralNet.Tests.csproj" />
+  <Project Path="IrisNeuralNet/IrisNeuralNet.csproj" />
+</Solution>
