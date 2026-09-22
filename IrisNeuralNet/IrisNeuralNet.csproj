@@ -10,8 +10,4 @@
 	<TieredCompilationQuickJitForLoops>true</TieredCompilationQuickJitForLoops>
   </PropertyGroup>
 
-  <ItemGroup>
-    <Folder Include="Diagnostics\" />
-  </ItemGroup>
-
 </Project>

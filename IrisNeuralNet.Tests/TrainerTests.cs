@@ -33,7 +33,7 @@ namespace IrisNeuralNet.Tests
             var trainer = new Trainer(network, new SgdOptimizer(0.1f), new CategoricalCrossEntropyLoss());
 
             Assert.Throws<ArgumentException>(
-                () => trainer.Fit(new float[4], new float[2], epochs: 1, batchSize: 1));
+                () => trainer.Fit(new float[4], new float[2], epochs: 1, batchSize: 1, seed: 0));
         }
     }
 }

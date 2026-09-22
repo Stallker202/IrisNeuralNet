@@ -1,4 +1,5 @@
-﻿using IrisNeuralNet.MathCore;
+﻿using IrisNeuralNet.Diagnostics;
+using IrisNeuralNet.MathCore;
 using IrisNeuralNet.Optimizers;
 using System;
 
@@ -13,6 +14,7 @@ namespace IrisNeuralNet.Core
         private readonly NeuralNetwork _network;
         private readonly IOptimizer _optimizer;
         private readonly ILossFunction _loss;
+        private readonly ITrainingObserver _observer;
         private float[] _batchX = Array.Empty<float>();
         private float[] _batchY = Array.Empty<float>();
         private float[] _predicted = Array.Empty<float>();
@@ -20,37 +22,59 @@ namespace IrisNeuralNet.Core
         private int[] _order = Array.Empty<int>();
 
         public Trainer(NeuralNetwork network, IOptimizer optimizer, ILossFunction loss)
+            : this(network, optimizer, loss, NullTrainingObserver.Instance)
+        {
+        }
+
+        public Trainer(NeuralNetwork network, IOptimizer optimizer, ILossFunction loss, ITrainingObserver observer)
         {
             _network = network ?? throw new ArgumentNullException(nameof(network));
             _optimizer = optimizer ?? throw new ArgumentNullException(nameof(optimizer));
             _loss = loss ?? throw new ArgumentNullException(nameof(loss));
+            _observer = observer ?? throw new ArgumentNullException(nameof(observer));
         }
 
-        public float Fit(ReadOnlySpan<float> trainX, ReadOnlySpan<float> trainY, int epochs, int batchSize, int seed = 0)
+        public float Fit(ReadOnlySpan<float> trainX, ReadOnlySpan<float> trainY, int epochs, int batchSize, int seed) =>
+            Fit(trainX, trainY, ReadOnlySpan<float>.Empty, ReadOnlySpan<float>.Empty, epochs, batchSize, seed);
+
+        public float Fit(
+            ReadOnlySpan<float> trainX,
+            ReadOnlySpan<float> trainY,
+            ReadOnlySpan<float> validationX,
+            ReadOnlySpan<float> validationY,
+            int epochs,
+            int batchSize,
+            int seed)
         {
             EnsureDataset(trainX, trainY);
+            bool hasValidation = !validationX.IsEmpty && !validationY.IsEmpty;
+            if (hasValidation)
+            {
+                EnsureDataset(validationX, validationY);
+            }
+
             if (epochs <= 0) throw new ArgumentOutOfRangeException(nameof(epochs));
             if (batchSize <= 0) throw new ArgumentOutOfRangeException(nameof(batchSize));
 
-            int rowWidth = _network.OutputDim;
-            int rowCount = trainY.Length / rowWidth;
+            int rowCount = trainY.Length / _network.OutputDim;
             int[] order = EnsureOrder(rowCount);
             var random = new Random(seed);
 
-            float loss = 0f;
-            for (int epoch = 0; epoch < epochs; epoch++)
+            EpochMetrics metrics = default;
+            for (int epoch = 1; epoch <= epochs; epoch++)
             {
                 Shuffler.Shuffle(order.AsSpan(0, rowCount), random);
                 for (int start = 0; start < rowCount; start += batchSize)
                 {
                     int count = Math.Min(batchSize, rowCount - start);
-                    TrainBatch(trainX, trainY, order, start, count, rowWidth);
+                    TrainBatch(trainX, trainY, order, start, count);
                 }
 
-                loss = EvaluateLoss(trainX, trainY);
+                metrics = EvaluateEpoch(epoch, trainX, trainY, validationX, validationY, hasValidation);
+                _observer.OnEpochCompleted(in metrics);
             }
 
-            return loss;
+            return metrics.TrainLoss;
         }
 
         public float EvaluateLoss(ReadOnlySpan<float> x, ReadOnlySpan<float> y)
@@ -67,15 +91,35 @@ namespace IrisNeuralNet.Core
             return Metrics.Accuracy(predicted, y, _network.OutputDim);
         }
 
-        private void TrainBatch(
+        private EpochMetrics EvaluateEpoch(
+            int epoch,
             ReadOnlySpan<float> trainX,
             ReadOnlySpan<float> trainY,
-            int[] order,
-            int start,
-            int count,
-            int rowWidth)
+            ReadOnlySpan<float> validationX,
+            ReadOnlySpan<float> validationY,
+            bool hasValidation)
+        {
+            Span<float> predicted = Predict(trainX);
+            float trainLoss = _loss.Compute(predicted, trainY, _network.OutputDim);
+            float trainAccuracy = Metrics.Accuracy(predicted, trainY, _network.OutputDim);
+
+            float validationLoss = float.NaN;
+            float validationAccuracy = float.NaN;
+            if (hasValidation)
+            {
+                Span<float> validationPredicted = Predict(validationX);
+                validationLoss = _loss.Compute(validationPredicted, validationY, _network.OutputDim);
+                validationAccuracy = Metrics.Accuracy(validationPredicted, validationY, _network.OutputDim);
+            }
+
+            return new EpochMetrics(epoch, trainLoss, trainAccuracy, validationLoss, validationAccuracy);
+        }
+
+        private void TrainBatch(ReadOnlySpan<float> trainX, ReadOnlySpan<float> trainY, int[] order, int start, int count)
         {
             int inputWidth = _network.InputDim;
+            int rowWidth = _network.OutputDim;
+
             Span<float> batchX = Buffers.Rent(ref _batchX, count * inputWidth);
             Span<float> batchY = Buffers.Rent(ref _batchY, count * rowWidth);
             for (int i = 0; i < count; i++)
