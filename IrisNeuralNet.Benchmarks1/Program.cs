@@ -1,2 +1,11 @@
-﻿// See https://aka.ms/new-console-template for more information
-Console.WriteLine("Hello, World!");
+﻿using BenchmarkDotNet.Running;
+
+namespace IrisNeuralNet.Benchmarks
+{
+    internal static class Program
+    {
+        private static void Main(string[] args) =>
+            BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
+    }
+}
+
