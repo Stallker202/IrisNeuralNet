@@ -112,5 +112,18 @@ namespace IrisNeuralNet.Tests
             Assert.Equal(new float[] { 1f }, layer.BiasGradients.ToArray());
             Assert.Equal(new float[] { 1f }, inputGradient);
         }
+
+        [Fact]
+        public void Probe_MatchesForwardForSingleSample()
+        {
+            var layer = new DenseLayer(new float[] { 1f, 2f, 3f, 4f }, new float[] { 0.5f, -0.5f }, new ReLUActivation());
+            float[] forward = new float[2];
+            float[] probe = new float[2];
+
+            layer.Forward(new float[] { 1f, 2f }, forward, batchSize: 1);
+            layer.Probe(new float[] { 1f, 2f }, probe);
+
+            Assert.Equal(forward, probe);
+        }
     }
 }

@@ -108,6 +108,16 @@ public sealed class DenseLayer
         }
     }
 
+    public void Probe(ReadOnlySpan<float> input, Span<float> destination)
+    {
+        SpanGuard.EnsureLength(input, InputDim, nameof(input));
+        SpanGuard.EnsureLength(destination, OutputDim, nameof(destination));
+
+        VectorOps.MatMul(input, _weights, destination, 1, InputDim, OutputDim);
+        VectorOps.AddRowBroadcast(destination, _biases, OutputDim);
+        _activation.Apply(destination, destination, OutputDim);
+    }
+
     private static float[] CreateXavierWeights(int inputDim, int outputDim, int seed)
     {
         if (inputDim <= 0) throw new ArgumentOutOfRangeException(nameof(inputDim));

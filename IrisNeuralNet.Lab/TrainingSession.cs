@@ -26,6 +26,9 @@ namespace IrisNeuralNet.Lab
         private AdamOptimizer? _optimizer;
         private float _learningRate = 0.02f;
 
+        private NeuralNetwork? _network;
+        public NeuralNetwork? CurrentNetwork => Volatile.Read(ref _network);
+
         public TrainingSession(
             float[] trainFeatures, float[] trainLabels,
             float[] validationFeatures, float[] validationLabels,
@@ -89,6 +92,7 @@ namespace IrisNeuralNet.Lab
             try
             {
                 NeuralNetwork network = BuildNetwork(hiddenNeurons, seed);
+                Volatile.Write(ref _network, network);
                 AdamOptimizer optimizer = new(network, _learningRate);
                 _optimizer = optimizer;
                 Trainer trainer = new(network, optimizer, new CategoricalCrossEntropyLoss(), _ring);

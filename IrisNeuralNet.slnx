@@ -1,5 +1,5 @@
 <Solution>
-  <Project Path="IrisNeuralNet.Benchmarks/IrisNeuralNet.Benchmarks.csproj" />
+  <Project Path="IrisNeuralNet.Benchmarks1/IrisNeuralNet.Benchmarks.csproj" Id="289e1385-aee7-457d-bf05-8fc04a53f18c" />
   <Project Path="IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj" />
   <Project Path="IrisNeuralNet.Tests/IrisNeuralNet.Tests.csproj" />
   <Project Path="IrisNeuralNet/IrisNeuralNet.csproj" />

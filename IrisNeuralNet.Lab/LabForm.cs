@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using IrisNeuralNet.Data;
 using IrisNeuralNet.Diagnostics;
+using IrisNeuralNet.MathCore;
 
 namespace IrisNeuralNet.Lab;
 
@@ -18,6 +20,10 @@ internal sealed class LabForm : Form
     private readonly List<float> _prevValLoss = new();
     private readonly List<float> _prevTrainAcc = new();
     private readonly List<float> _prevValAcc = new();
+    private readonly Pca2D _pca;
+    private readonly float[] _probeSample;
+    private readonly TopologyView _topology = new();
+    private readonly DecisionBoundaryView _boundary = new();
     private int _consumedEpochs;
     private bool _architectureDirty;
 
@@ -36,7 +42,7 @@ internal sealed class LabForm : Form
     private readonly ChartBox _accChart = new();
     private readonly Timer _timer = new();
 
-    public LabForm(TrainingSession session)
+    public LabForm(TrainingSession session, PreparedData data)
     {
         _session = session;
         Text = "Iris Neural Lab";
@@ -46,6 +52,16 @@ internal sealed class LabForm : Form
         BackColor = UiTheme.Background;
         Font = UiTheme.UiFont;
         SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+
+        int dim = IrisDataLoader.FeatureCount;
+        float[] allFeatures = ConcatFloats(data.TrainFeatures, data.ValidationFeatures);
+        int[] allClasses = ConcatInts(
+            ClassesFromOneHot(data.TrainLabels, data.ClassCount),
+            ClassesFromOneHot(data.ValidationLabels, data.ClassCount));
+        _pca = Pca2D.Fit(allFeatures, dim);
+        _boundary.SetData(_pca, allFeatures, allClasses, dim, data.ClassCount);
+        _probeSample = new float[dim];
+        Array.Copy(data.ValidationFeatures, _probeSample, dim);
 
         BuildLayout();
         WireEvents();
@@ -133,11 +149,36 @@ internal sealed class LabForm : Form
         _lossChart.Dock = DockStyle.Fill;
         _lossChart.Margin = new Padding(0, 0, 0, 4);
         _accChart.Dock = DockStyle.Fill;
-        _accChart.Margin = new Padding(0, 4, 0, 0);
+        _accChart.Margin = new Padding(4, 0, 0, 0);
         charts.Controls.Add(_lossChart, 0, 0);
         charts.Controls.Add(_accChart, 0, 1);
 
-        Controls.Add(charts);
+        var split = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Padding = new Padding(8),
+            BackColor = UiTheme.Background,
+        };
+        split.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        split.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        _topology.Dock = DockStyle.Fill;
+        _topology.Margin = new Padding(0, 0, 4, 0);
+        _boundary.Dock = DockStyle.Fill;
+        _boundary.Margin = new Padding(4, 0, 0, 0);
+        split.Controls.Add(_topology, 0, 0);
+        split.Controls.Add(_boundary, 1, 0);
+
+        var tabs = new TabControl { Dock = DockStyle.Fill };
+        var trainingPage = new TabPage("Обучение") { BackColor = UiTheme.Background, UseVisualStyleBackColor = false };
+        var structurePage = new TabPage("Сеть и границы") { BackColor = UiTheme.Background, UseVisualStyleBackColor = false };
+        trainingPage.Controls.Add(charts);
+        structurePage.Controls.Add(split);
+        tabs.TabPages.Add(trainingPage);
+        tabs.TabPages.Add(structurePage);
+
+        Controls.Add(tabs);
         Controls.Add(left);
         Controls.Add(_status);
     }
@@ -276,8 +317,13 @@ internal sealed class LabForm : Form
         EpochMetrics latest = _ringSnapshot.Count > 0 ? _ringSnapshot[_ringSnapshot.Count - 1] : default;
         _status.Text = $"epoch {latest.Epoch} | lr {_session.LearningRate:F4} | train acc {latest.TrainAccuracy:P1} | " +
                        $"val acc {latest.ValidationAccuracy:P1} | {(_session.IsRunning ? "обучение" : "простой")}";
+
         _lossChart.Invalidate();
         _accChart.Invalidate();
+        _topology.UpdateSource(_session.CurrentNetwork, _probeSample);
+        _topology.Invalidate();
+        _boundary.UpdateNetwork(_session.CurrentNetwork);
+        _boundary.Invalidate();
     }
 
     private void PaintLoss(Graphics g, Rectangle bounds)
@@ -306,5 +352,41 @@ internal sealed class LabForm : Form
         series.Add(new ChartSeries("train", UiTheme.AccentGreen, _trainAcc));
         series.Add(new ChartSeries("val", UiTheme.AccentGold, _valAcc));
         ChartPainter.Draw(g, bounds, "Accuracy", series);
+    }
+
+    private static int[] ClassesFromOneHot(float[] oneHot, int classCount)
+    {
+        var classes = new int[oneHot.Length / classCount];
+        for (int i = 0; i < classes.Length; i++)
+        {
+            int best = 0;
+            for (int c = 1; c < classCount; c++)
+            {
+                if (oneHot[i * classCount + c] > oneHot[i * classCount + best])
+                {
+                    best = c;
+                }
+            }
+
+            classes[i] = best;
+        }
+
+        return classes;
+    }
+
+    private static float[] ConcatFloats(float[] a, float[] b)
+    {
+        var result = new float[a.Length + b.Length];
+        a.CopyTo(result, 0);
+        b.CopyTo(result, a.Length);
+        return result;
+    }
+
+    private static int[] ConcatInts(int[] a, int[] b)
+    {
+        var result = new int[a.Length + b.Length];
+        a.CopyTo(result, 0);
+        b.CopyTo(result, a.Length);
+        return result;
     }
 }

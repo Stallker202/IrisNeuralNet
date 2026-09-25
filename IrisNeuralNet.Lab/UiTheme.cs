@@ -1,4 +1,5 @@
-﻿using System.Drawing;
+﻿using System;
+using System.Drawing;
 
 namespace IrisNeuralNet.Lab;
 
@@ -23,4 +24,13 @@ internal static class UiTheme
     public static readonly Font UiFont = new Font("Segoe UI", 9f);
     public static readonly Font MonoFont = new Font("Consolas", 9f);
     public static readonly Font TitleFont = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+
+    public static Color Mix(Color a, Color b, float t)
+    {
+        t = Math.Clamp(t, 0f, 1f);
+        return Color.FromArgb(
+            (int)(a.R + (b.R - a.R) * t),
+            (int)(a.G + (b.G - a.G) * t),
+            (int)(a.B + (b.B - a.B) * t));
+    }
 }

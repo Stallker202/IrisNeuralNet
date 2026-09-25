@@ -51,7 +51,7 @@ internal static class Program
 
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
-        Application.Run(new LabForm(session));
+        Application.Run(new LabForm(session, data));
     }
 
     private static void RunConsole()
