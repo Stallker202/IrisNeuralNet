@@ -89,4 +89,18 @@ public sealed class NeuralNetwork
             current = inputGradient;
         }
     }
+
+    private float[] _predictionBuffer = Array.Empty<float>();
+
+    /// <summary>Прямой проход для одного образца: probabilities длиной OutputDim.</summary>
+    public void Predict(ReadOnlySpan<float> features, Span<float> probabilities) =>
+        Forward(features, probabilities, batchSize: 1);
+
+    /// <summary>Индекс класса с максимальной вероятностью; ноль аллокаций в установившемся режиме.</summary>
+    public int PredictClass(ReadOnlySpan<float> features)
+    {
+        Span<float> probabilities = Buffers.Rent(ref _predictionBuffer, OutputDim);
+        Forward(features, probabilities, batchSize: 1);
+        return Metrics.ArgMax(probabilities);
+    }
 }

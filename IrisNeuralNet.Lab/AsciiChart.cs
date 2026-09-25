@@ -28,7 +28,7 @@ namespace IrisNeuralNet.Lab
                 max = min + 1f;
             }
 
-            var grid = new char[Height, Width];
+            char[,] grid = new char[Height, Width];
             for (int row = 0; row < Height; row++)
             {
                 for (int col = 0; col < Width; col++)

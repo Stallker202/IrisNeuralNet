@@ -7,7 +7,7 @@ namespace IrisNeuralNet.Optimizers
     public sealed class AdamOptimizer : IOptimizer
     {
         private readonly NeuralNetwork _owner;
-        private readonly float _learningRate;
+        private float _learningRate;
         private readonly float _beta1;
         private readonly float _beta2;
         private readonly float _epsilon;
@@ -16,6 +16,16 @@ namespace IrisNeuralNet.Optimizers
         private readonly float[][] _mBiases;
         private readonly float[][] _vBiases;
         private int _step;
+
+        public float LearningRate
+        {
+            get => _learningRate;
+            set
+            {
+                if (value <= 0f) throw new ArgumentOutOfRangeException(nameof(value));
+                _learningRate = value;
+            }
+        }
 
         public AdamOptimizer(
             NeuralNetwork network,

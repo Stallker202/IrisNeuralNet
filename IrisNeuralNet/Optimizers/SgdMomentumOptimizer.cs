@@ -9,10 +9,20 @@ namespace IrisNeuralNet.Optimizers
     public sealed class SgdMomentumOptimizer : IOptimizer
     {
         private readonly NeuralNetwork _owner;
-        private readonly float _learningRate;
+        private float _learningRate;
         private readonly float _momentum;
         private readonly float[][] _velocityWeights;
         private readonly float[][] _velocityBiases;
+
+        public float LearningRate
+        {
+            get => _learningRate;
+            set
+            {
+                if (value <= 0f) throw new ArgumentOutOfRangeException(nameof(value));
+                _learningRate = value;
+            }
+        }
 
         public SgdMomentumOptimizer(NeuralNetwork network, float learningRate, float momentum)
         {

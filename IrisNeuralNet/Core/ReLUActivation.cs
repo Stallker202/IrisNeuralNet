@@ -20,5 +20,7 @@ namespace IrisNeuralNet.Core
             SpanGuard.EnsureDivisible(source.Length, rowWidth, nameof(rowWidth));
             Activations.ReLUBackward(source, outputGradient, destination);
         }
+
+        public override ActivationKind Kind => ActivationKind.Relu;
     }
 }

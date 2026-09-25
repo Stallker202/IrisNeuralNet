@@ -6,7 +6,8 @@ namespace IrisNeuralNet.Data
     public sealed class FeatureNormalizer
     {
         private const float StdFloor = 1e-8f;
-
+        public ReadOnlySpan<float> Means => _means;
+        public ReadOnlySpan<float> Scales => _scales;
         private readonly float[] _means;
         private readonly float[] _scales;
 
@@ -65,6 +66,18 @@ namespace IrisNeuralNet.Data
                     features[index] = (features[index] - _means[f]) * _scales[f];
                 }
             }
+        }
+
+        public static FeatureNormalizer FromParameters(float[] means, float[] scales)
+        {
+            if (means is null) throw new ArgumentNullException(nameof(means));
+            if (scales is null) throw new ArgumentNullException(nameof(scales));
+            if (means.Length == 0 || means.Length != scales.Length)
+            {
+                throw new ArgumentException("Means and scales must be non-empty and of equal length.");
+            }
+
+            return new FeatureNormalizer((float[])means.Clone(), (float[])scales.Clone());
         }
     }
 }

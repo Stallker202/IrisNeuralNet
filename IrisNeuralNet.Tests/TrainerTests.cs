@@ -35,5 +35,17 @@ namespace IrisNeuralNet.Tests
             Assert.Throws<ArgumentException>(
                 () => trainer.Fit(new float[4], new float[2], epochs: 1, batchSize: 1, seed: 0));
         }
+
+        [Fact]
+        public void Fit_StopsOnCancelledToken()
+        {
+            var network = new NeuralNetwork(new[] { LayerFactory.Identity(2, new ReLUActivation()) });
+            var trainer = new Trainer(network, new SgdOptimizer(0.1f), new CategoricalCrossEntropyLoss());
+            using var cancellation = new System.Threading.CancellationTokenSource();
+            cancellation.Cancel();
+
+            Assert.Throws<System.OperationCanceledException>(
+                () => trainer.Fit(new float[4], new float[4], epochs: 5, batchSize: 2, seed: 0, cancellation.Token));
+        }
     }
 }

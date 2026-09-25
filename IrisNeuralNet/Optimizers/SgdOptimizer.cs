@@ -8,7 +8,17 @@ namespace IrisNeuralNet.Optimizers
     /// <summary>Классический градиентный спуск: p -= lr * g.</summary>
     public sealed class SgdOptimizer : IOptimizer
     {
-        private readonly float _learningRate;
+        private float _learningRate;
+
+        public float LearningRate
+        {
+            get => _learningRate;
+            set
+            {
+                if (value <= 0f) throw new ArgumentOutOfRangeException(nameof(value));
+                _learningRate = value;
+            }
+        }
 
         public SgdOptimizer(float learningRate)
         {

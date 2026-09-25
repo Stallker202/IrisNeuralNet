@@ -123,4 +123,6 @@ public sealed class DenseLayer
 
         return weights;
     }
+
+    public ActivationKind ActivationKind => _activation.Kind;
 }

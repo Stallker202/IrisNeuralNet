@@ -15,5 +15,7 @@ namespace IrisNeuralNet.Core
         Span<float> destination,
         int rowWidth) =>
         Activations.SoftmaxRowsBackward(source, outputGradient, destination, rowWidth);
+
+        public override ActivationKind Kind => ActivationKind.Softmax;
     }
 }

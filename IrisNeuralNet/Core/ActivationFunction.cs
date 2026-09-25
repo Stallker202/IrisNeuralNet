@@ -19,6 +19,8 @@ namespace IrisNeuralNet.Core
             ReadOnlySpan<float> outputGradient,
             Span<float> destination,
             int rowWidth);
+
+        public abstract ActivationKind Kind { get; }
     }
 }
 
