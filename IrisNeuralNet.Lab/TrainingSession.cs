@@ -109,18 +109,7 @@ namespace IrisNeuralNet.Lab
             }
         }
 
-        private NeuralNetwork BuildNetwork(int[] hiddenNeurons, int seed)
-        {
-            var layers = new List<DenseLayer>();
-            int input = _inputDim;
-            for (int i = 0; i < hiddenNeurons.Length; i++)
-            {
-                layers.Add(new DenseLayer(input, hiddenNeurons[i], new ReLUActivation(), seed: seed + i + 1));
-                input = hiddenNeurons[i];
-            }
-
-            layers.Add(new DenseLayer(input, _classCount, new SoftmaxActivation(), seed: seed + hiddenNeurons.Length + 1));
-            return new NeuralNetwork(layers.ToArray());
-        }
+        private NeuralNetwork BuildNetwork(int[] hiddenNeurons, int seed) =>
+            NetworkFactory.Create(_inputDim, hiddenNeurons, _classCount, seed);
     }
 }

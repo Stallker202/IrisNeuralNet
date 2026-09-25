@@ -24,6 +24,7 @@ internal sealed class LabForm : Form
     private readonly float[] _probeSample;
     private readonly TopologyView _topology = new();
     private readonly DecisionBoundaryView _boundary = new();
+    private readonly SweepPanel _sweepPanel;
     private int _consumedEpochs;
     private bool _architectureDirty;
 
@@ -61,6 +62,7 @@ internal sealed class LabForm : Form
         _pca = Pca2D.Fit(allFeatures, dim);
         _boundary.SetData(_pca, allFeatures, allClasses, dim, data.ClassCount);
         _probeSample = new float[dim];
+        _sweepPanel = new SweepPanel(data);
         Array.Copy(data.ValidationFeatures, _probeSample, dim);
 
         BuildLayout();
@@ -173,10 +175,13 @@ internal sealed class LabForm : Form
         var tabs = new TabControl { Dock = DockStyle.Fill };
         var trainingPage = new TabPage("Обучение") { BackColor = UiTheme.Background, UseVisualStyleBackColor = false };
         var structurePage = new TabPage("Сеть и границы") { BackColor = UiTheme.Background, UseVisualStyleBackColor = false };
+        var sweepPage = new TabPage("Sweep") { BackColor = UiTheme.Background, UseVisualStyleBackColor = false };
+        sweepPage.Controls.Add(_sweepPanel);
         trainingPage.Controls.Add(charts);
         structurePage.Controls.Add(split);
         tabs.TabPages.Add(trainingPage);
         tabs.TabPages.Add(structurePage);
+        tabs.TabPages.Add(sweepPage);
 
         Controls.Add(tabs);
         Controls.Add(left);

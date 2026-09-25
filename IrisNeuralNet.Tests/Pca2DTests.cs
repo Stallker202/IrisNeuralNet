@@ -25,7 +25,7 @@ namespace IrisNeuralNet.Tests
         [Fact]
         public void ProjectReconstruct_RoundTripsOnRankTwoData()
         {
-            float ux = 0.6f, uy = 0.8f, uz = 0f;
+            float ux = 0.6f, uy = 0.8f;
             var features = new float[13 * 9 * 3];
             int row = 0;
             for (int a = -6; a <= 6; a++)
