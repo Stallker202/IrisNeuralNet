@@ -2,134 +2,151 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using IrisNeuralNet.Data;
+using IrisNeuralNet.Lab.Experiments;
+using IrisNeuralNet.Lab.Reporting;
 
-namespace IrisNeuralNet.Lab
+namespace IrisNeuralNet.Lab;
+
+/// <summary>Вкладка Sweep: запуск сетки архитектур с текущими гиперпараметрами панели управления.</summary>
+internal sealed class SweepPanel : Panel
 {
-    internal sealed class SweepPanel : Panel
+    private static readonly SweepGrid Grid = new(LayerOptions: new[] { 0, 1, 2, 3 }, NeuronOptions: new[] { 2, 4, 8, 16, 32, 64 });
+
+    private readonly SweepRunner _runner;
+    private readonly Func<ExperimentConfig?> _template;
+    private readonly SweepHeatmapView _heatmap = new();
+    private readonly NumericUpDown _epochs = new();
+    private readonly Button _run = new();
+    private readonly Button _cancel = new();
+    private readonly Label _status = new();
+    private readonly List<SweepResult> _live = new();
+    private CancellationTokenSource? _cancellation;
+
+    /// <param name="template">Текущие настройки панели (оптимизатор, lr, batch); null — настройки с ошибкой.</param>
+    public SweepPanel(PreparedData data, Func<ExperimentConfig?> template)
     {
-        private readonly SweepRunner _runner;
-        private readonly SweepHeatmapView _heatmap = new();
-        private readonly NumericUpDown _epochs = new();
-        private readonly Button _run = new();
-        private readonly Label _status = new();
-        private readonly Progress<SweepResult> _progress;
-        private readonly List<SweepResult> _live = new();
-        private readonly int[] _neuronOptions = { 2, 4, 8, 16, 32, 64 };
-        private readonly int[] _layerOptions = { 0, 1, 2, 3 };
-        private int _totalConfigs;
+        Dock = DockStyle.Fill;
+        BackColor = UiTheme.Background;
+        _runner = new SweepRunner(data);
+        _template = template;
+        BuildLayout(data.Spec.Defaults.Epochs);
+    }
 
-        public SweepPanel(PreparedData data)
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _cancellation?.Cancel();
+        base.Dispose(disposing);
+    }
+
+    private void BuildLayout(int defaultEpochs)
+    {
+        var top = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill;
-            BackColor = UiTheme.Background;
-            _runner = new SweepRunner(data);
-            _progress = new Progress<SweepResult>(OnResult);
-            BuildLayout();
+            Dock = DockStyle.Top,
+            Height = 46,
+            Padding = new Padding(8, 8, 8, 4),
+            BackColor = UiTheme.PanelBackground,
+            WrapContents = false,
+        };
+
+        var epochsLabel = new Label { Text = "эпох на прогон:", ForeColor = UiTheme.TextMuted, AutoSize = true, Margin = new Padding(0, 8, 4, 0) };
+        _epochs.Minimum = 1;
+        _epochs.Maximum = 5000;
+        _epochs.Value = Math.Clamp(defaultEpochs, 1, 5000);
+        _epochs.Width = 70;
+        _epochs.BackColor = UiTheme.Background;
+        _epochs.ForeColor = UiTheme.TextPrimary;
+        _epochs.BorderStyle = BorderStyle.FixedSingle;
+        _epochs.Margin = new Padding(0, 4, 12, 0);
+
+        StyleButton(_run, $"Запустить sweep ({Grid.Count} конфигов)", UiTheme.AccentGold, 240);
+        StyleButton(_cancel, "Отмена", UiTheme.AccentRed, 90);
+        _cancel.Enabled = false;
+
+        _status.ForeColor = UiTheme.TextMuted;
+        _status.AutoSize = true;
+        _status.Margin = new Padding(0, 8, 0, 0);
+        _status.Text = "ещё не запущено (оптимизатор, lr и batch — из левой панели)";
+
+        top.Controls.AddRange(new Control[] { epochsLabel, _epochs, _run, _cancel, _status });
+        _heatmap.Dock = DockStyle.Fill;
+        Controls.Add(_heatmap);
+        Controls.Add(top);
+
+        _run.Click += async (_, _) => await RunAsync();
+        _cancel.Click += (_, _) => _cancellation?.Cancel();
+    }
+
+    private async Task RunAsync()
+    {
+        ExperimentConfig? template = _template();
+        if (template is null)
+        {
+            _status.Text = "исправь архитектуру/настройки в левой панели";
+            return;
         }
 
-        private void BuildLayout()
+        template = template with { Epochs = (int)_epochs.Value };
+        _run.Enabled = false;
+        _cancel.Enabled = true;
+        _live.Clear();
+        _heatmap.UpdateData(_live, Grid, _runner.Metric);
+        _heatmap.Invalidate();
+        _status.Text = $"sweep: 0/{Grid.Count}";
+
+        _cancellation = new CancellationTokenSource();
+        var progress = new Progress<SweepResult>(OnResult);
+        try
         {
-            var top = new TableLayoutPanel
-            {
-                Dock = DockStyle.Top,
-                Height = 46,
-                ColumnCount = 4,
-                Padding = new Padding(8, 8, 8, 4),
-                BackColor = UiTheme.PanelBackground,
-            };
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-
-            var epochsLabel = new Label
-            {
-                Text = "эпох на прогон:",
-                ForeColor = UiTheme.TextMuted,
-                AutoSize = true,
-                Margin = new Padding(0, 6, 4, 0),
-            };
-
-            _epochs.Minimum = 20;
-            _epochs.Maximum = 2000;
-            _epochs.Value = 150;
-            _epochs.Increment = 10;
-            _epochs.Width = 70;
-            _epochs.BackColor = UiTheme.Background;
-            _epochs.ForeColor = UiTheme.TextPrimary;
-            _epochs.BorderStyle = BorderStyle.FixedSingle;
-            _epochs.Margin = new Padding(0, 2, 12, 0);
-
-            _run.Text = $"Запустить sweep ({_neuronOptions.Length * _layerOptions.Length} конфигов)";
-            _run.FlatStyle = FlatStyle.Flat;
-            _run.ForeColor = UiTheme.AccentGold;
-            _run.BackColor = UiTheme.Background;
-            _run.FlatAppearance.BorderColor = UiTheme.AccentGold;
-            _run.Font = UiTheme.TitleFont;
-            _run.Height = 32;
-            _run.Width = 230;
-            _run.Margin = new Padding(0, 0, 12, 0);
-
-            _status.ForeColor = UiTheme.TextMuted;
-            _status.AutoSize = true;
-            _status.Margin = new Padding(0, 8, 0, 0);
-            _status.Text = "ещё не запущено";
-
-            top.Controls.Add(epochsLabel, 0, 0);
-            top.Controls.Add(_epochs, 1, 0);
-            top.Controls.Add(_run, 2, 0);
-            top.Controls.Add(_status, 3, 0);
-
-            _heatmap.Dock = DockStyle.Fill;
-            _heatmap.Margin = new Padding(8);
-
-            Controls.Add(_heatmap);
-            Controls.Add(top);
-
-            _run.Click += (_, _) => OnRun();
+            CancellationToken token = _cancellation.Token;
+            List<SweepResult> results = await Task.Run(() => _runner.Run(Grid, template, progress, token));
+            SweepResult best = SweepRunner.Best(results, _runner.Metric);
+            _status.Text = $"лучшая: {best.HiddenLayers} скрытых × {best.Neurons} нейронов → val {_runner.Metric.Name} " +
+                           $"{MetricFormat.Value(_runner.Metric, best.ValidationMetric)}, val_loss {MetricFormat.Loss(best.ValidationLoss)}; прогонов: {results.Count}";
         }
-
-        private void OnRun()
+        catch (Exception e) when (IsCancellation(e))
         {
-            _run.Enabled = false;
-            _live.Clear();
-            _heatmap.UpdateData(_live, _neuronOptions, _layerOptions);
-            _heatmap.Invalidate();
-            _totalConfigs = _neuronOptions.Length * _layerOptions.Length;
-            _status.Text = $"sweep: 0/{_totalConfigs}";
-
-            var config = new SweepConfig
-            {
-                NeuronOptions = _neuronOptions,
-                LayerOptions = _layerOptions,
-                Epochs = (int)_epochs.Value,
-            };
-
-            Task.Run(() => _runner.Run(config, _progress))
-                .ContinueWith(task =>
-                {
-                    _run.Enabled = true;
-                    if (task.IsFaulted)
-                    {
-                        _status.Text = $"ошибка sweep: {task.Exception!.InnerExceptions[0].Message}";
-                        return;
-                    }
-
-                    SweepResult best = task.Result.OrderByDescending(r => r.ValidationAccuracy).First();
-                    _status.Text = $"лучшая: {best.HiddenLayers} скрытых × {best.Neurons} нейронов → " +
-                                   $"val acc {best.ValidationAccuracy:P1}, loss {best.FinalLoss:F4}; прогонов: {task.Result.Count}";
-                }, TaskScheduler.FromCurrentSynchronizationContext());
+            _status.Text = $"sweep отменён: готово {_live.Count}/{Grid.Count}";
         }
-
-        private void OnResult(SweepResult result)
+        catch (Exception e)
         {
-            _live.Add(result);
-            _heatmap.UpdateData(_live, _neuronOptions, _layerOptions);
-            _heatmap.Invalidate();
-            _status.Text = $"sweep: {_live.Count}/{_totalConfigs}";
+            _status.Text = $"ошибка sweep: {e.Message}";
         }
+        finally
+        {
+            _run.Enabled = true;
+            _cancel.Enabled = false;
+            _cancellation.Dispose();
+            _cancellation = null;
+        }
+    }
+
+    /// <summary>Parallel.ForEach заворачивает отмену из тела цикла в AggregateException.</summary>
+    private static bool IsCancellation(Exception e) =>
+        e is OperationCanceledException
+        || e is AggregateException aggregate && aggregate.Flatten().InnerExceptions.All(inner => inner is OperationCanceledException);
+
+    private void OnResult(SweepResult result)
+    {
+        _live.Add(result);
+        _heatmap.UpdateData(_live, Grid, _runner.Metric);
+        _heatmap.Invalidate();
+        _status.Text = $"sweep: {_live.Count}/{Grid.Count}";
+    }
+
+    private static void StyleButton(Button button, string text, Color accent, int width)
+    {
+        button.Text = text;
+        button.FlatStyle = FlatStyle.Flat;
+        button.ForeColor = accent;
+        button.BackColor = UiTheme.Background;
+        button.FlatAppearance.BorderColor = accent;
+        button.Font = UiTheme.TitleFont;
+        button.Height = 32;
+        button.Width = width;
+        button.Margin = new Padding(0, 0, 12, 0);
     }
 }

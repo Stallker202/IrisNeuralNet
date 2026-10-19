@@ -2,7 +2,7 @@
 
 namespace IrisNeuralNet.Core;
 
-/// Единственное место, где сериализованный код превращается в полиморфный объект.
+/// <summary>Единственное место, где сериализованный код превращается в полиморфный объект.</summary>
 internal static class ActivationFactory
 {
     public static ActivationFunction Create(ActivationKind kind) =>
@@ -11,6 +11,7 @@ internal static class ActivationFactory
             ActivationKind.Relu => new ReLUActivation(),
             ActivationKind.Softmax => new SoftmaxActivation(),
             ActivationKind.Sigmoid => new SigmoidActivation(),
+            ActivationKind.Linear => new LinearActivation(),
             _ => throw new FormatException($"Unknown activation kind {(byte)kind}."),
         };
 }

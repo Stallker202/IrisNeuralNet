@@ -8,7 +8,7 @@ public sealed class NetworkFactoryTests
     [Fact]
     public void Create_BuildsExpectedLayerChain()
     {
-        NeuralNetwork network = NetworkFactory.Create(inputDim: 4, new[] { 8, 6 }, classCount: 3, seed: 1);
+        NeuralNetwork network = NetworkFactory.Create(inputDim: 4, new[] { 8, 6 }, TrainingTask.MultiClass, classCount: 3, seed: 1);
 
         Assert.Equal(3, network.LayerCount);
         Assert.Equal(4, network.Layers[0].InputDim);
@@ -22,7 +22,7 @@ public sealed class NetworkFactoryTests
     [Fact]
     public void Create_WithNoHiddenLayers_ProducesSingleSoftmaxLayer()
     {
-        NeuralNetwork network = NetworkFactory.Create(inputDim: 4, System.Array.Empty<int>(), classCount: 3, seed: 1);
+        NeuralNetwork network = NetworkFactory.Create(inputDim: 4, System.Array.Empty<int>(), TrainingTask.MultiClass, classCount: 3, seed: 1);
 
         Assert.Equal(1, network.LayerCount);
         Assert.Equal(4, network.InputDim);
@@ -32,9 +32,9 @@ public sealed class NetworkFactoryTests
     [Fact]
     public void Create_IsDeterministicForSameSeed()
     {
-        NeuralNetwork first = NetworkFactory.Create(4, new[] { 8 }, 3, seed: 42);
-        NeuralNetwork second = NetworkFactory.Create(4, new[] { 8 }, 3, seed: 42);
-        NeuralNetwork third = NetworkFactory.Create(4, new[] { 8 }, 3, seed: 43);
+        NeuralNetwork first = NetworkFactory.Create(4, new[] { 8 }, TrainingTask.MultiClass, 3, seed: 42);
+        NeuralNetwork second = NetworkFactory.Create(4, new[] { 8 }, TrainingTask.MultiClass, 3, seed: 42);
+        NeuralNetwork third = NetworkFactory.Create(4, new[] { 8 }, TrainingTask.MultiClass, 3, seed: 43);
 
         Assert.Equal(first.Layers[0].Weights.ToArray(), second.Layers[0].Weights.ToArray());
         Assert.NotEqual(first.Layers[0].Weights.ToArray(), third.Layers[0].Weights.ToArray());

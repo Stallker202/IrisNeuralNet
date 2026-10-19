@@ -1,26 +1,19 @@
-﻿using IrisNeuralNet.MathCore;
-using System;
+﻿using System;
+using IrisNeuralNet.MathCore;
 
-namespace IrisNeuralNet.Core
+namespace IrisNeuralNet.Core;
+
+public sealed class ReLUActivation : ActivationFunction
 {
-    public sealed class ReLUActivation : ActivationFunction
-    {
-        public override void Apply(ReadOnlySpan<float> source, Span<float> destination, int rowWidth)
-        {
-            SpanGuard.EnsureDivisible(source.Length, rowWidth, nameof(rowWidth));
-            Activations.ReLU(source, destination);
-        }
+    public override ActivationKind Kind => ActivationKind.Relu;
 
-        public override void Backward(
-            ReadOnlySpan<float> source,
-            ReadOnlySpan<float> outputGradient,
-            Span<float> destination,
-            int rowWidth)
-        {
-            SpanGuard.EnsureDivisible(source.Length, rowWidth, nameof(rowWidth));
-            Activations.ReLUBackward(source, outputGradient, destination);
-        }
+    public override void Apply(ReadOnlySpan<float> source, Span<float> destination, int rowWidth) =>
+        Activations.ReLU(source, destination);
 
-        public override ActivationKind Kind => ActivationKind.Relu;
-    }
+    public override void Backward(
+        ReadOnlySpan<float> source,
+        ReadOnlySpan<float> outputGradient,
+        Span<float> destination,
+        int rowWidth) =>
+        Activations.ReLUBackward(source, outputGradient, destination);
 }

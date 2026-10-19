@@ -28,12 +28,12 @@ public sealed class SonarDataLoaderTests
         File.WriteAllText(path, builder.ToString());
         try
         {
-            IrisDataset dataset = SonarDataLoader.Load(path);
+            Dataset dataset = SonarDataLoader.Load(path);
 
             Assert.Equal(2, dataset.RowCount);
             Assert.Equal(60, dataset.FeatureCount);
             Assert.Equal(2, dataset.ClassCount);
-            Assert.Equal(new[] { 0, 1 }, dataset.Classes.ToArray());
+            Assert.Equal(new[] { 0f, 1f }, dataset.Labels.ToArray());
             Assert.Equal(0.001f, dataset.Features[1], precision: 6);
         }
         finally

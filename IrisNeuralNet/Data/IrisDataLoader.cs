@@ -1,23 +1,16 @@
-﻿using System;
-using System.Buffers.Text;
-using System.IO;
-using System.Text;
+﻿using System.Collections.Generic;
 
-namespace IrisNeuralNet.Data
+namespace IrisNeuralNet.Data;
+
+/// <summary>Iris (UCI iris.data): 150 строк, 4 признака (см), 3 класса.</summary>
+public static class IrisDataLoader
 {
-    /// Читает iris.csv (формат UCI: 4 признака + метка класса, без заголовка)
-    /// напрямую из UTF-8 байтов, без промежуточных строк.
-    public static class IrisDataLoader
-    {
-        public const int FeatureCount = 4;
-        public const int ClassCount = 3;
+    public const int FeatureCount = 4;
+    public const int ClassCount = 3;
 
-        private static readonly string[] Labels = { "Iris-setosa", "Iris-versicolor", "Iris-virginica" };
+    private static readonly string[] Labels = { "Iris-setosa", "Iris-versicolor", "Iris-virginica" };
 
-        public static IrisDataset Load(string path)
-        {
-            (float[] features, int[] classes) = CsvDatasetLoader.Load(path, FeatureCount, Labels);
-            return new IrisDataset(features, classes, FeatureCount, ClassCount);
-        }
-    }
+    public static IReadOnlyList<string> ClassNames => Labels;
+
+    public static Dataset Load(string path) => CsvDatasetLoader.LoadClassification(path, FeatureCount, Labels);
 }

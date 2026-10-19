@@ -1,24 +1,20 @@
 ﻿using IrisNeuralNet.Core;
-using System;
 
+namespace IrisNeuralNet.Optimizers;
 
-namespace IrisNeuralNet.Optimizers
+/// <summary>Выделяет по одному нулевому буферу на каждый тензор параметров сети [W₀, b₀, W₁, b₁, …].</summary>
+internal static class OptimizerState
 {
-    internal static class OptimizerState
+    public static float[][] Create(NeuralNetwork network)
     {
-        public static float[][] ForWeights(NeuralNetwork network) => For(network, layer => layer.Weights.Length);
-
-        public static float[][] ForBiases(NeuralNetwork network) => For(network, layer => layer.Biases.Length);
-
-        private static float[][] For(NeuralNetwork network, Func<DenseLayer, int> size)
+        var slots = new float[network.LayerCount * 2][];
+        for (int i = 0; i < network.LayerCount; i++)
         {
-            var slots = new float[network.LayerCount][];
-            for (int i = 0; i < slots.Length; i++)
-            {
-                slots[i] = new float[size(network.Layers[i])];
-            }
-
-            return slots;
+            DenseLayer layer = network.Layers[i];
+            slots[i * 2] = new float[layer.Weights.Length];
+            slots[i * 2 + 1] = new float[layer.Biases.Length];
         }
+
+        return slots;
     }
 }

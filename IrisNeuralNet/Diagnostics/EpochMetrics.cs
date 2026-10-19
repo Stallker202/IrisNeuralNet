@@ -1,23 +1,16 @@
-﻿using System;
+﻿namespace IrisNeuralNet.Diagnostics;
 
-namespace IrisNeuralNet.Diagnostics
+/// <summary>
+/// Метрики одной эпохи (аналог строки History в Keras). Значение метрики зависит от задачи:
+/// accuracy для классификации, MAE для регрессии (имя — в <see cref="Core.Trainer.Metric"/>).
+/// Без валидации ValidationLoss/ValidationMetric равны NaN.
+/// </summary>
+public readonly record struct EpochMetrics(
+    int Epoch,
+    float TrainLoss,
+    float TrainMetric,
+    float ValidationLoss,
+    float ValidationMetric)
 {
-    /// <summary>Метрики одной эпохи обучения.</summary>
-    public readonly struct EpochMetrics
-    {
-        public EpochMetrics(int epoch, float trainLoss, float trainAccuracy, float validationLoss, float validationAccuracy)
-        {
-            Epoch = epoch;
-            TrainLoss = trainLoss;
-            TrainAccuracy = trainAccuracy;
-            ValidationLoss = validationLoss;
-            ValidationAccuracy = validationAccuracy;
-        }
-
-        public int Epoch { get; }
-        public float TrainLoss { get; }
-        public float TrainAccuracy { get; }
-        public float ValidationLoss { get; }
-        public float ValidationAccuracy { get; }
-    }
+    public bool HasValidation => !float.IsNaN(ValidationLoss);
 }

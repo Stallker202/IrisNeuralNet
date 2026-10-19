@@ -1,38 +1,16 @@
-﻿using IrisNeuralNet.Core;
+﻿using System;
 using IrisNeuralNet.MathCore;
-using System;
 
+namespace IrisNeuralNet.Optimizers;
 
-namespace IrisNeuralNet.Optimizers
+/// <summary>Классический градиентный спуск: p −= lr · g. Состояния нет — подходит любой сети.</summary>
+public sealed class SgdOptimizer : OptimizerBase
 {
-    /// <summary>Классический градиентный спуск: p -= lr * g.</summary>
-    public sealed class SgdOptimizer : IOptimizer
+    public SgdOptimizer(float learningRate)
+        : base(learningRate, owner: null)
     {
-        private float _learningRate;
-
-        public float LearningRate
-        {
-            get => _learningRate;
-            set
-            {
-                if (value <= 0f) throw new ArgumentOutOfRangeException(nameof(value));
-                _learningRate = value;
-            }
-        }
-
-        public SgdOptimizer(float learningRate)
-        {
-            if (learningRate <= 0f) throw new ArgumentOutOfRangeException(nameof(learningRate));
-            _learningRate = learningRate;
-        }
-
-        public void Step(NeuralNetwork network)
-        {
-            foreach (DenseLayer layer in network.Layers)
-            {
-                VectorOps.MultiplyAdd(layer.WeightGradients, -_learningRate, layer.Weights);
-                VectorOps.MultiplyAdd(layer.BiasGradients, -_learningRate, layer.Biases);
-            }
-        }
     }
+
+    protected override void Update(Span<float> parameters, ReadOnlySpan<float> gradients, int tensorIndex) =>
+        VectorOps.MultiplyAdd(gradients, -LearningRate, parameters);
 }

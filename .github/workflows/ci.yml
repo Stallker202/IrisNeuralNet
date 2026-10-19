@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - name: Build Lab (+ core)
+        run: dotnet build IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release
+      - name: Build benchmarks
+        run: dotnet build IrisNeuralNet.Benchmarks/IrisNeuralNet.Benchmarks.csproj -c Release
+      - name: Test
+        run: dotnet test IrisNeuralNet.Tests/IrisNeuralNet.Tests.csproj -c Release --logger "console;verbosity=normal"
+      - name: Smoke-run lab scenarios (--quick)
+        run: dotnet run --project IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release --no-build -- --console all --quick --out reports-quick
+
+  # Полный прогон лабораторных (≈5–10 минут) с коммитом отчётов (results.md + PNG) в папку reports/.
+  # Запуск: вручную (workflow_dispatch) или коммитом с [labs] в сообщении.
+  labs:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[labs]')
+    needs: build-test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - name: Run all lab scenarios
+        run: dotnet run --project IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release -- --console all --out reports
+      - name: Commit reports
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports
+          git diff --cached --quiet && { echo "reports unchanged"; exit 0; }
+          git commit -m "docs(reports): результаты лабораторных работ (CI, ${GITHUB_SHA::7})"
+          git push

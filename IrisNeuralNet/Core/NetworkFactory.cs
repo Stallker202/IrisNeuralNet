@@ -1,27 +1,33 @@
-﻿using System.Collections.Generic;
+﻿using System;
 
-namespace IrisNeuralNet.Core
+namespace IrisNeuralNet.Core;
+
+/// <summary>Единственное место сборки архитектуры «вход → скрытые ReLU-слои → выход» по спецификации.</summary>
+public static class NetworkFactory
 {
-
-
-
-    public static class NetworkFactory
+    /// <param name="hiddenNeurons">Размеры скрытых слоёв (ReLU); пусто — сеть из одного выходного слоя.</param>
+    public static NeuralNetwork Create(
+        int inputDim, ReadOnlySpan<int> hiddenNeurons, int outputDim, ActivationFunction outputActivation, int seed)
     {
-        public static NeuralNetwork Create(int inputDim, int[] hiddenNeurons, int outputDim, ActivationFunction outputActivation, int seed)
-        {
-            var layers = new List<DenseLayer>();
-            int input = inputDim;
-            for (int i = 0; i < hiddenNeurons.Length; i++)
-            {
-                layers.Add(new DenseLayer(input, hiddenNeurons[i], new ReLUActivation(), seed: seed + i + 1));
-                input = hiddenNeurons[i];
-            }
+        if (outputActivation is null) throw new ArgumentNullException(nameof(outputActivation));
 
-            layers.Add(new DenseLayer(input, outputDim, outputActivation, seed: seed + hiddenNeurons.Length + 1));
-            return new NeuralNetwork(layers.ToArray());
+        var layers = new DenseLayer[hiddenNeurons.Length + 1];
+        int input = inputDim;
+        for (int i = 0; i < hiddenNeurons.Length; i++)
+        {
+            layers[i] = new DenseLayer(input, hiddenNeurons[i], new ReLUActivation(), seed: seed + i + 1);
+            input = hiddenNeurons[i];
         }
 
-        public static NeuralNetwork Create(int inputDim, int[] hiddenNeurons, int classCount, int seed) =>
-            Create(inputDim, hiddenNeurons, classCount, new SoftmaxActivation(), seed);
+        layers[^1] = new DenseLayer(input, outputDim, outputActivation, seed: seed + hiddenNeurons.Length + 1);
+        return new NeuralNetwork(layers);
+    }
+
+    /// <summary>Выходной слой (размер и активация) определяется типом задачи.</summary>
+    public static NeuralNetwork Create(
+        int inputDim, ReadOnlySpan<int> hiddenNeurons, TrainingTask task, int classCount, int seed)
+    {
+        if (task is null) throw new ArgumentNullException(nameof(task));
+        return Create(inputDim, hiddenNeurons, task.OutputDim(classCount), task.CreateOutputActivation(), seed);
     }
 }
