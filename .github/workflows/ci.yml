@@ -44,8 +44,8 @@ jobs:
       matrix:
         include:
           - { rid: win-x64, os: ubuntu-latest, archive: zip }
-          - { rid: linux-x64, os: ubuntu-latest, archive: tar.gz }
-          - { rid: osx-arm64, os: macos-latest, archive: tar.gz }
+          - { rid: linux-x64, os: ubuntu-latest, archive: tar.gz, smoke: true }
+          - { rid: osx-arm64, os: macos-latest, archive: tar.gz, smoke: true }
           - { rid: osx-x64, os: macos-latest, archive: tar.gz }
     runs-on: ${{ matrix.os }}
     steps:
@@ -58,6 +58,10 @@ jobs:
           dotnet publish IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release -r ${{ matrix.rid }}
           --self-contained -p:PublishSingleFile=true -p:DebugType=none
           -o publish/IrisNeuralNet-${{ matrix.rid }}
+      # Запускает готовую сборку там, где она родная для раннера (Linux и Apple Silicon).
+      - name: Smoke-test package
+        if: matrix.smoke
+        run: bash .github/smoke-package.sh publish/IrisNeuralNet-${{ matrix.rid }}
       - name: Archive
         shell: bash
         run: |
