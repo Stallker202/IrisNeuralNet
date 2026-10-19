@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build Lab (+ core)
+        run: dotnet build IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release
+      - name: Test
+        run: dotnet test IrisNeuralNet.Tests/IrisNeuralNet.Tests.csproj -c Release --logger "console;verbosity=normal"
