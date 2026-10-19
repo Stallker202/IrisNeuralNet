@@ -1,7 +1,7 @@
-﻿using IrisNeuralNet.Core;
-using IrisNeuralNet.Data;
-using System;
+﻿using System;
 using System.IO;
+using IrisNeuralNet.Core;
+using IrisNeuralNet.Data;
 using Xunit;
 
 namespace IrisNeuralNet.Tests;
@@ -112,4 +112,29 @@ public sealed class ModelFileTests
             new DenseLayer(new float[] { 1f, 2f, 3f, 4f }, new float[] { 0.5f, -0.5f }, new ReLUActivation()),
             new DenseLayer(new float[] { 1f, 0f, 0f, 0f, 1f, 0f }, new float[] { 0f, 0f, 0f }, new SoftmaxActivation()),
         });
+
+    [Fact]
+    public void RoundTrip_PreservesLinearRegressionHead()
+    {
+        NeuralNetwork network = NetworkFactory.Create(3, new[] { 4 }, TrainingTask.Regression, classCount: 0, seed: 2);
+        string path = Path.GetTempFileName();
+        try
+        {
+            ModelFile.Save(network, FeatureNormalizer.Constant(3, mean: 0f, scale: 1f / 255f), path);
+            LoadedModel loaded = ModelFile.Load(path);
+
+            Assert.Equal(ActivationKind.Linear, loaded.Network.Layers[1].ActivationKind);
+            Assert.Equal(1f / 255f, loaded.Normalizer!.Scales[2]);
+
+            float[] original = new float[1];
+            float[] restored = new float[1];
+            network.Predict(new float[] { 1f, -2f, 3f }, original);
+            loaded.Network.Predict(new float[] { 1f, -2f, 3f }, restored);
+            Assert.Equal(original, restored);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

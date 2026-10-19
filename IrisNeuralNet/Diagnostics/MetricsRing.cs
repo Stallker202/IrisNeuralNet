@@ -1,64 +1,64 @@
 ﻿using System;
 using System.Collections.Generic;
 
+namespace IrisNeuralNet.Diagnostics;
+
+/// <summary>
 /// Кольцевой буфер метрик эпох: производитель — поток обучения, потребитель — поток UI.
 /// Синхронизация — один короткий lock (раз в эпоху / раз в кадр):
 /// для диагностического канала это надёжнее и дешевле lock-free кольца.
-
-namespace IrisNeuralNet.Diagnostics
+/// </summary>
+public sealed class MetricsRing : ITrainingObserver
 {
-    public sealed class MetricsRing : ITrainingObserver
+    private readonly object _gate = new();
+    private readonly EpochMetrics[] _items;
+    private readonly int _mask;
+    private int _head;
+    private int _count;
+
+    public MetricsRing(int capacity = 4096)
     {
-        private readonly object _gate = new();
-        private readonly EpochMetrics[] _items;
-        private readonly int _mask;
-        private int _head;
-        private int _count;
+        int rounded = 1;
+        while (rounded < capacity) rounded <<= 1;
+        _items = new EpochMetrics[rounded];
+        _mask = rounded - 1;
+    }
 
-        public MetricsRing(int capacity = 4096)
+    public void OnEpochCompleted(in EpochMetrics metrics)
+    {
+        lock (_gate)
         {
-            int rounded = 1;
-            while (rounded < capacity) rounded <<= 1;
-            _items = new EpochMetrics[rounded];
-            _mask = rounded - 1;
+            _items[_head] = metrics;
+            _head = (_head + 1) & _mask;
+            if (_count < _items.Length) _count++;
         }
+    }
 
-        public void OnEpochCompleted(in EpochMetrics metrics)
+    public int Count
+    {
+        get { lock (_gate) return _count; }
+    }
+
+    /// <summary>Копирует метрики в список потребителя, от старых к новым.</summary>
+    public void CopyTo(List<EpochMetrics> destination)
+    {
+        lock (_gate)
         {
-            lock (_gate)
+            destination.Clear();
+            int start = (_head - _count) & _mask;
+            for (int i = 0; i < _count; i++)
             {
-                _items[_head] = metrics;
-                _head = (_head + 1) & _mask;
-                if (_count < _items.Length) _count++;
+                destination.Add(_items[(start + i) & _mask]);
             }
         }
+    }
 
-        public int Count
+    public void Clear()
+    {
+        lock (_gate)
         {
-            get { lock (_gate) return _count; }
-        }
-
-        /// <summary>Копирует метрики в список потребителя, от старых к новым.</summary>
-        public void CopyTo(List<EpochMetrics> destination)
-        {
-            lock (_gate)
-            {
-                destination.Clear();
-                int start = (_head - _count) & _mask;
-                for (int i = 0; i < _count; i++)
-                {
-                    destination.Add(_items[(start + i) & _mask]);
-                }
-            }
-        }
-
-        public void Clear()
-        {
-            lock (_gate)
-            {
-                _head = 0;
-                _count = 0;
-            }
+            _head = 0;
+            _count = 0;
         }
     }
 }

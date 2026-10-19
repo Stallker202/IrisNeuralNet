@@ -4,10 +4,11 @@ using IrisNeuralNet.MathCore;
 namespace IrisNeuralNet.Core;
 
 /// <summary>
-/// Полносвязный слой: output = activation(input x weights + biases).
+/// Полносвязный слой (Keras Dense): output = activation(input · weights + biases).
 /// Веса row-major: [InputDim x OutputDim]. После Backward градиенты доступны
 /// через WeightGradients / BiasGradients для оптимизатора.
-/// Экземпляр не потокобезопасен: владеет рабочими буферами.
+/// Forward/Backward владеют рабочими буферами и не потокобезопасны;
+/// <see cref="Infer"/> не трогает буферы обучения (только читает веса).
 /// </summary>
 public sealed class DenseLayer
 {
@@ -21,21 +22,14 @@ public sealed class DenseLayer
     private float[] _lastInput = Array.Empty<float>();
     private int _lastBatchSize;
 
-    public int InputDim { get; }
-    public int OutputDim { get; }
-    public Span<float> Weights => _weights;
-    public Span<float> Biases => _biases;
-    public Span<float> WeightGradients => _weightGradients;
-    public Span<float> BiasGradients => _biasGradients;
-
     public DenseLayer(float[] weights, float[] biases, ActivationFunction activation)
     {
         if (weights is null) throw new ArgumentNullException(nameof(weights));
         if (biases is null) throw new ArgumentNullException(nameof(biases));
         if (biases.Length == 0) throw new ArgumentException("Biases must not be empty.", nameof(biases));
-        if (weights.Length % biases.Length != 0)
+        if (weights.Length == 0 || weights.Length % biases.Length != 0)
         {
-            throw new ArgumentException("Weights length must be a multiple of biases length.", nameof(weights));
+            throw new ArgumentException("Weights length must be a positive multiple of biases length.", nameof(weights));
         }
 
         _activation = activation ?? throw new ArgumentNullException(nameof(activation));
@@ -47,12 +41,22 @@ public sealed class DenseLayer
         InputDim = weights.Length / biases.Length;
     }
 
-    /// <summary>Слой со случайной инициализацией Xavier (детерминированной по seed).</summary>
+    /// <summary>Слой со случайной инициализацией Glorot/Xavier uniform (по умолчанию в Keras), детерминированной по seed.</summary>
     public DenseLayer(int inputDim, int outputDim, ActivationFunction activation, int seed)
         : this(CreateXavierWeights(inputDim, outputDim, seed), new float[outputDim], activation)
     {
     }
 
+    public int InputDim { get; }
+    public int OutputDim { get; }
+    public int ParameterCount => _weights.Length + _biases.Length;
+    public ActivationKind ActivationKind => _activation.Kind;
+    public Span<float> Weights => _weights;
+    public Span<float> Biases => _biases;
+    public Span<float> WeightGradients => _weightGradients;
+    public Span<float> BiasGradients => _biasGradients;
+
+    /// <summary>Обучающий прямой проход: запоминает вход и пре-активацию для Backward.</summary>
     public void Forward(ReadOnlySpan<float> input, Span<float> output, int batchSize)
     {
         SpanGuard.EnsureLength(input, batchSize * InputDim, nameof(input));
@@ -61,15 +65,15 @@ public sealed class DenseLayer
         input.CopyTo(Buffers.Rent(ref _lastInput, batchSize * InputDim));
 
         Span<float> preActivation = Buffers.Rent(ref _preActivation, batchSize * OutputDim);
-        VectorOps.MatMul(input, _weights, preActivation, batchSize, InputDim, OutputDim);
-        VectorOps.AddRowBroadcast(preActivation, _biases, OutputDim);
+        ComputePreActivation(input, preActivation, batchSize);
         _activation.Apply(preActivation, output, OutputDim);
 
         _lastBatchSize = batchSize;
     }
 
     /// <summary>
-    /// Обратный проход: считает dW, dB (складывает в градиенты) и dX в inputGradient.
+    /// Обратный проход: dW, dB — в градиенты слоя, dX — в inputGradient.
+    /// Пустой inputGradient означает «dX не нужен» (первый слой сети): экономит матричное произведение.
     /// Требует, чтобы Forward был вызван с тем же batchSize.
     /// </summary>
     public void Backward(ReadOnlySpan<float> outputGradient, Span<float> inputGradient, int batchSize)
@@ -80,7 +84,11 @@ public sealed class DenseLayer
         }
 
         SpanGuard.EnsureLength(outputGradient, batchSize * OutputDim, nameof(outputGradient));
-        SpanGuard.EnsureLength(inputGradient, batchSize * InputDim, nameof(inputGradient));
+        bool needsInputGradient = !inputGradient.IsEmpty;
+        if (needsInputGradient)
+        {
+            SpanGuard.EnsureLength(inputGradient, batchSize * InputDim, nameof(inputGradient));
+        }
 
         // Логический размер батча, а не ёмкость grow-only буфера!
         ReadOnlySpan<float> preActivation = _preActivation.AsSpan(0, batchSize * OutputDim);
@@ -97,25 +105,29 @@ public sealed class DenseLayer
             VectorOps.Add(delta.Slice(i * OutputDim, OutputDim), _biasGradients, _biasGradients);
         }
 
-        for (int i = 0; i < batchSize; i++)
+        if (needsInputGradient)
         {
-            ReadOnlySpan<float> deltaRow = delta.Slice(i * OutputDim, OutputDim);
-            Span<float> inputGradientRow = inputGradient.Slice(i * InputDim, InputDim);
-            for (int k = 0; k < InputDim; k++)
-            {
-                inputGradientRow[k] = VectorOps.Dot(deltaRow, _weights.AsSpan(k * OutputDim, OutputDim));
-            }
+            VectorOps.MatMulWithTransposedRight(delta, _weights, inputGradient, batchSize, OutputDim, InputDim);
         }
     }
 
-    public void Probe(ReadOnlySpan<float> input, Span<float> destination)
+    /// <summary>
+    /// Прямой проход без записи в буферы обучения: безопасен для наблюдателей (UI)
+    /// и для оценки, пока поток обучения не обновляет веса. input и output не должны пересекаться.
+    /// </summary>
+    public void Infer(ReadOnlySpan<float> input, Span<float> output, int batchSize)
     {
-        SpanGuard.EnsureLength(input, InputDim, nameof(input));
-        SpanGuard.EnsureLength(destination, OutputDim, nameof(destination));
+        SpanGuard.EnsureLength(input, batchSize * InputDim, nameof(input));
+        SpanGuard.EnsureLength(output, batchSize * OutputDim, nameof(output));
 
-        VectorOps.MatMul(input, _weights, destination, 1, InputDim, OutputDim);
+        ComputePreActivation(input, output, batchSize);
+        _activation.Apply(output, output, OutputDim);
+    }
+
+    private void ComputePreActivation(ReadOnlySpan<float> input, Span<float> destination, int batchSize)
+    {
+        VectorOps.MatMul(input, _weights, destination, batchSize, InputDim, OutputDim);
         VectorOps.AddRowBroadcast(destination, _biases, OutputDim);
-        _activation.Apply(destination, destination, OutputDim);
     }
 
     private static float[] CreateXavierWeights(int inputDim, int outputDim, int seed)
@@ -133,6 +145,4 @@ public sealed class DenseLayer
 
         return weights;
     }
-
-    public ActivationKind ActivationKind => _activation.Kind;
 }

@@ -29,6 +29,18 @@ public sealed class FeatureNormalizerTests
         Assert.Equal(0f, features[0]);
         Assert.Equal(0f, features[2]);
     }
+
+    [Fact]
+    public void Constant_ScalesPixelsWithoutMutatingSource()
+    {
+        float[] pixels = { 0f, 127.5f, 255f };
+        var normalizer = FeatureNormalizer.Constant(featureCount: 3, mean: 0f, scale: 1f / 255f);
+
+        float[] scaled = normalizer.Transform(pixels, rowCount: 1);
+
+        Assert.Equal(new float[] { 0f, 0.5f, 1f }, scaled);
+        Assert.Equal(255f, pixels[2]);
+    }
 }
 
 public sealed class DatasetSplitterTests
@@ -36,50 +48,50 @@ public sealed class DatasetSplitterTests
     [Fact]
     public void Split_PreservesAllRowsAndSizes()
     {
-        IrisDataset dataset = CreateIndexedDataset(rowCount: 10);
+        Dataset dataset = CreateIndexedDataset(rowCount: 10);
 
         var (train, validation) = DatasetSplitter.Split(dataset, validationFraction: 0.2f, seed: 42);
 
         Assert.Equal(8, train.RowCount);
         Assert.Equal(2, validation.RowCount);
 
-        int[] combinedClasses = new int[train.RowCount + validation.RowCount];
-        train.Classes.CopyTo(combinedClasses);
-        validation.Classes.CopyTo(combinedClasses.AsSpan(train.RowCount));
-        Array.Sort(combinedClasses);
+        float[] combinedLabels = new float[train.RowCount + validation.RowCount];
+        train.Labels.CopyTo(combinedLabels);
+        validation.Labels.CopyTo(combinedLabels.AsSpan(train.RowCount));
+        Array.Sort(combinedLabels);
 
-        int[] expected = new int[combinedClasses.Length];
+        float[] expected = new float[combinedLabels.Length];
         for (int i = 0; i < expected.Length; i++)
         {
             expected[i] = i;
         }
 
-        Assert.Equal(expected, combinedClasses);
+        Assert.Equal(expected, combinedLabels);
     }
 
     [Fact]
     public void Split_IsDeterministicForSameSeed()
     {
-        IrisDataset dataset = CreateIndexedDataset(rowCount: 10);
+        Dataset dataset = CreateIndexedDataset(rowCount: 10);
 
         var (trainA, validationA) = DatasetSplitter.Split(dataset, 0.2f, seed: 7);
         var (trainB, validationB) = DatasetSplitter.Split(dataset, 0.2f, seed: 7);
 
-        Assert.Equal(validationA.Classes.ToArray(), validationB.Classes.ToArray());
+        Assert.Equal(validationA.Labels.ToArray(), validationB.Labels.ToArray());
         Assert.Equal(trainA.Features.ToArray(), trainB.Features.ToArray());
     }
 
-    private static IrisDataset CreateIndexedDataset(int rowCount)
+    private static Dataset CreateIndexedDataset(int rowCount)
     {
         var features = new float[rowCount];
-        var classes = new int[rowCount];
+        var labels = new float[rowCount];
         for (int i = 0; i < rowCount; i++)
         {
             features[i] = i;      // признак-«отпечаток» строки
-            classes[i] = i;       // класс-«отпечаток» строки
+            labels[i] = i;        // метка-«отпечаток» строки
         }
 
-        return new IrisDataset(features, classes, featureCount: 1, classCount: rowCount);
+        return new Dataset(features, labels, featureCount: 1, classCount: rowCount);
     }
 }
 
@@ -94,7 +106,7 @@ public sealed class OneHotEncoderTests
     }
 
     [Fact]
-    public void Encode_Throws_OnOutOfRangeclass()
+    public void Encode_Throws_OnOutOfRangeClass()
     {
         Assert.Throws<ArgumentException>(() => OneHotEncoder.Encode(new int[] { 3 }, classCount: 3));
     }
