@@ -1,12 +1,13 @@
-﻿using System;
+﻿using IrisNeuralNet.Core;
+using IrisNeuralNet.Diagnostics;
+using IrisNeuralNet.Optimizers;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using IrisNeuralNet.Core;
-using IrisNeuralNet.Optimizers;
 
 namespace IrisNeuralNet.Lab
 {
@@ -42,10 +43,7 @@ namespace IrisNeuralNet.Lab
         public long ElapsedMs { get; }
     }
 
-    /// <summary>
-    /// Пакетное сравнение архитектур: каждый конфиг — независимый прогон,
-    /// поэтому sweep распараллелен без разделяемого состояния (кроме потокобезопасного мешка результатов).
-    /// </summary>
+    /// <summary>Пакетное сравнение архитектур; каждый прогон независим и детерминирован.</summary>
     internal sealed class SweepRunner
     {
         private readonly float[] _trainFeatures;
@@ -54,18 +52,18 @@ namespace IrisNeuralNet.Lab
         private readonly float[] _validationLabels;
         private readonly int _inputDim;
         private readonly int _classCount;
+        private readonly TaskKind _taskKind;
 
-        public SweepRunner(
-            float[] trainFeatures, float[] trainLabels,
-            float[] validationFeatures, float[] validationLabels,
-            int inputDim, int classCount)
+        public SweepRunner(PreparedData data)
         {
-            _trainFeatures = trainFeatures;
-            _trainLabels = trainLabels;
-            _validationFeatures = validationFeatures;
-            _validationLabels = validationLabels;
-            _inputDim = inputDim;
-            _classCount = classCount;
+            if (data is null) throw new ArgumentNullException(nameof(data));
+            _trainFeatures = data.TrainFeatures;
+            _trainLabels = data.TrainLabels;
+            _validationFeatures = data.ValidationFeatures;
+            _validationLabels = data.ValidationLabels;
+            _inputDim = data.FeatureCount;
+            _classCount = data.ClassCount;
+            _taskKind = data.TaskKind;
         }
 
         public List<SweepResult> Run(SweepConfig config, IProgress<SweepResult>? progress = null, CancellationToken token = default)
@@ -90,11 +88,18 @@ namespace IrisNeuralNet.Lab
                 int seed = config.BaseSeed + pair.Index;
                 int[] hidden = BuildHidden(pair.Layers, pair.Neurons);
 
-                NeuralNetwork network = NetworkFactory.Create(_inputDim, hidden, _classCount, seed);
-                var optimizer = new AdamOptimizer(network, config.LearningRate);
-                var trainer = new Trainer(network, optimizer, new CategoricalCrossEntropyLoss());
+                NeuralNetwork network = _taskKind == TaskKind.Binary
+                    ? NetworkFactory.Create(_inputDim, hidden, 1, new SigmoidActivation(), seed)
+                    : NetworkFactory.Create(_inputDim, hidden, _classCount, seed);
 
-                float loss = trainer.Fit(
+                ILossFunction loss = _taskKind == TaskKind.Binary
+                    ? new BinaryCrossEntropyLoss()
+                    : new CategoricalCrossEntropyLoss();
+
+                var optimizer = new AdamOptimizer(network, config.LearningRate);
+                var trainer = new Trainer(network, optimizer, loss, NullTrainingObserver.Instance, _taskKind);
+
+                float lossValue = trainer.Fit(
                     _trainFeatures, _trainLabels,
                     _validationFeatures, _validationLabels,
                     config.Epochs, config.BatchSize, seed, token);
@@ -104,7 +109,7 @@ namespace IrisNeuralNet.Lab
                     pair.Layers, pair.Neurons,
                     trainer.EvaluateAccuracy(_trainFeatures, _trainLabels),
                     trainer.EvaluateAccuracy(_validationFeatures, _validationLabels),
-                    loss,
+                    lossValue,
                     stopwatch.ElapsedMilliseconds);
                 bag.Add(result);
                 progress?.Report(result);

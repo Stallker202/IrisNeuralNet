@@ -25,10 +25,7 @@ namespace IrisNeuralNet.Lab
         {
             Dock = DockStyle.Fill;
             BackColor = UiTheme.Background;
-            _runner = new SweepRunner(
-                data.TrainFeatures, data.TrainLabels,
-                data.ValidationFeatures, data.ValidationLabels,
-                IrisDataLoader.FeatureCount, data.ClassCount);
+            _runner = new SweepRunner(data);
             _progress = new Progress<SweepResult>(OnResult);
             BuildLayout();
         }

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Numerics;
 
-/// <summary>Функции активации над плоскими буферами; row-варианты — для батчей.</summary>
+/// Функции активации над плоскими буферами; row-варианты — для батчей.
 
 namespace IrisNeuralNet.MathCore
 {
@@ -51,7 +51,7 @@ namespace IrisNeuralNet.MathCore
             }
         }
 
-        /// <summary>source — пре-активация (z). destination = outputGradient * (z > 0).</summary>
+        /// source — пре-активация (z). destination = outputGradient * (z > 0).
         public static void ReLUBackward(ReadOnlySpan<float> source, ReadOnlySpan<float> outputGradient, Span<float> destination)
         {
             SpanGuard.EnsureSameLength(source, outputGradient, destination);
@@ -75,10 +75,8 @@ namespace IrisNeuralNet.MathCore
             }
         }
 
-        /// <summary>
         /// source — пре-активация (z). Произведение Якоби softmax на вектор градиента:
         /// dZ = A * (dA - dot(dA, A)), вычисляется за два прохода без временных буферов.
-        /// </summary>
         public static void SoftmaxBackward(ReadOnlySpan<float> source, ReadOnlySpan<float> outputGradient, Span<float> destination)
         {
             SpanGuard.EnsureSameLength(source, outputGradient, destination);
@@ -120,6 +118,33 @@ namespace IrisNeuralNet.MathCore
                     source.Slice(start, columns),
                     outputGradient.Slice(start, columns),
                     destination.Slice(start, columns));
+            }
+        }
+
+        /// Численно стойкая сигмоида: ветвление по знаку z защищает от exp-переполнения.
+        public static void Sigmoid(ReadOnlySpan<float> source, Span<float> destination)
+        {
+            SpanGuard.EnsureSameLength(source, destination);
+            for (int i = 0; i < source.Length; i++)
+            {
+                float z = source[i];
+                destination[i] = z >= 0f
+                    ? 1f / (1f + MathF.Exp(-z))
+                    : MathF.Exp(z) / (1f + MathF.Exp(z));
+            }
+        }
+
+        /// dZ = dA * σ(z) * (1 - σ(z)).
+        public static void SigmoidBackward(ReadOnlySpan<float> source, ReadOnlySpan<float> outputGradient, Span<float> destination)
+        {
+            SpanGuard.EnsureSameLength(source, outputGradient, destination);
+            for (int i = 0; i < source.Length; i++)
+            {
+                float z = source[i];
+                float s = z >= 0f
+                    ? 1f / (1f + MathF.Exp(-z))
+                    : MathF.Exp(z) / (1f + MathF.Exp(z));
+                destination[i] = outputGradient[i] * s * (1f - s);
             }
         }
     }

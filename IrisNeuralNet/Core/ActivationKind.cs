@@ -6,5 +6,6 @@ namespace IrisNeuralNet.Core
     {
         Relu = 1,
         Softmax = 2,
+        Sigmoid = 3
     }
 }

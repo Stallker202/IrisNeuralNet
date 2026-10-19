@@ -11,6 +11,7 @@ namespace IrisNeuralNet.Lab
         private readonly NetworkProbe _probe = new();
         private NeuralNetwork? _network;
         private float[] _probeSample = Array.Empty<float>();
+        private float[] _weightSnapshot = Array.Empty<float>();
 
         public TopologyView()
         {
@@ -79,6 +80,7 @@ namespace IrisNeuralNet.Lab
             {
                 DenseLayer layer = network.Layers[i];
                 ReadOnlySpan<float> w = layer.Weights;
+
                 float maxAbs = 1e-6f;
                 for (int k = 0; k < w.Length; k++)
                 {
@@ -90,10 +92,14 @@ namespace IrisNeuralNet.Lab
                     for (int outN = 0; outN < layer.OutputDim; outN++)
                     {
                         float weight = w[inN * layer.OutputDim + outN];
-                        float t = MathF.Abs(weight) / maxAbs;
-                        if (t < 0.04f)
+
+                        // Веса параллельно пишет трейнинг-поток: между сканом maxAbs и этим
+                        // чтением вес мог вырасти (или стать NaN при расходимости).
+                        // Зажимаем t в [0,1] — иначе GDI+ упадёт на alpha/width.
+                        float t = MathF.Min(1f, MathF.Abs(weight) / maxAbs);
+                        if (float.IsNaN(t))
                         {
-                            continue;
+                            t = 0f;
                         }
 
                         Color color = weight >= 0f ? UiTheme.AccentBlue : UiTheme.AccentRed;
@@ -105,7 +111,7 @@ namespace IrisNeuralNet.Lab
                             Position(columnX, area, i + 1, outN, counts[i + 1]));
                     }
                 }
-            }
+            }   
 
             for (int c = 0; c < columns; c++)
             {

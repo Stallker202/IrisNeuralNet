@@ -7,7 +7,7 @@ namespace IrisNeuralNet.Core
     public static class ModelFile
     {
         private const uint Magic = 0x4E4E4554u; // "NNET"
-        private const int Version = 1;
+        private const int Version = 2;
         private const int MaxArrayLength = 1 << 24; // защита от раздувания аллокаций битым файлом
 
         public static void Save(NeuralNetwork network, FeatureNormalizer? normalizer, string path)
@@ -59,7 +59,7 @@ namespace IrisNeuralNet.Core
             }
 
             int version = reader.ReadInt32();
-            if (version != Version)
+            if (version != 1 && version != 2)
             {
                 throw new FormatException($"Unsupported model format version {version}.");
             }

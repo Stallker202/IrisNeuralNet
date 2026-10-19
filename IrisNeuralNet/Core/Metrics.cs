@@ -37,5 +37,19 @@ namespace IrisNeuralNet.Core
 
             return best;
         }
+
+        /// Точность бинарной задачи: предсказание = p >= threshold.
+        public static float BinaryAccuracy(ReadOnlySpan<float> predicted, ReadOnlySpan<float> target, float threshold = 0.5f)
+        {
+            SpanGuard.EnsureSameLength(predicted, target);
+            int correct = 0;
+            for (int i = 0; i < predicted.Length; i++)
+            {
+                float predictedClass = predicted[i] >= threshold ? 1f : 0f;
+                if (predictedClass == target[i]) correct++;
+            }
+
+            return (float)correct / predicted.Length;
+        }
     }
 }
