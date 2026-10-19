@@ -2,19 +2,21 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- ASP.NET Core входит в .NET: это ссылка на общий фреймворк, а не NuGet-пакет. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\IrisNeuralNet\IrisNeuralNet.csproj" />
+    <InternalsVisibleTo Include="IrisNeuralNet.Tests" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Все датасеты рядом с exe: раньше копировался только iris.csv, и Sonar из VS «не находил файл». -->
-    <None Update="iris.csv;sonar.csv;boston.csv">
+    <!-- Датасеты и страница лежат рядом с exe: так работают и dotnet run, и распакованный релиз. -->
+    <None Update="iris.csv;sonar.csv;boston.csv;wwwroot\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

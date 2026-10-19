@@ -1,0 +1,256 @@
+/* Цвета и шрифты — переменные из /theme.css (генерируется из Rendering/Theme.cs). */
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr);
+  min-width: 960px;
+  min-height: 600px;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--text-primary);
+  font: 12px/1.35 var(--font-ui);
+}
+
+.muted { color: var(--text-muted); }
+
+/* Строка статуса сверху — как Label в WinForms-версии. */
+.status {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  overflow: hidden;
+  background: var(--panel-background);
+  color: var(--accent-green);
+  font: 12px var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  min-height: 0;
+}
+
+/* Левая панель управления */
+.panel {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  overflow-y: auto;
+  background: var(--panel-background);
+}
+
+.section { margin: 8px 2px 2px; color: var(--text-muted); }
+.lr { margin: 8px 2px 2px; color: var(--text-primary); }
+.error { margin: 0 2px 4px; color: var(--accent-red); }
+.hint { margin: 8px 2px 2px; color: var(--accent-orange); }
+
+.check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 2px 2px;
+  color: var(--text-muted);
+}
+
+select,
+input[type="number"],
+input[type="text"] {
+  width: calc(100% - 4px);
+  margin: 2px 2px 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--background);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+input.mono { font-family: var(--font-mono); }
+
+select:focus,
+input:focus { outline: 1px solid var(--accent-blue); outline-offset: 0; }
+
+input:disabled,
+select:disabled { opacity: 0.45; }
+
+input[type="range"] { width: calc(100% - 4px); margin: 2px 2px 8px; accent-color: var(--accent-blue); }
+input[type="checkbox"] { margin: 0; accent-color: var(--accent-blue); }
+
+/* Плоские кнопки с цветной рамкой */
+.button {
+  height: 34px;
+  margin: 6px 2px 2px;
+  padding: 0 12px;
+  border: 1px solid currentColor;
+  background: var(--background);
+  font: 700 12.7px var(--font-ui);
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) { background: var(--hover); }
+.button:disabled { opacity: 0.45; cursor: default; }
+.button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+.green { color: var(--accent-green); }
+.red { color: var(--accent-red); }
+.gold { color: var(--accent-gold); }
+.blue { color: var(--accent-blue); }
+
+/* Вкладки */
+.workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  background: var(--panel-background);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tab:hover { color: var(--text-primary); }
+
+.tab.active {
+  margin-bottom: -1px;
+  border-bottom: 1px solid var(--background);
+  background: var(--background);
+  color: var(--text-primary);
+}
+
+.page { display: none; min-height: 0; }
+.page.active { display: grid; }
+
+#page-training { grid-template-rows: 1fr 1fr; gap: 8px; padding: 6px 8px 8px; }
+.split { grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px; }
+#page-sweep { grid-template-rows: auto minmax(0, 1fr); gap: 8px; padding: 0 0 8px; }
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 8px 6px;
+  background: var(--panel-background);
+}
+
+.toolbar label,
+.toolbar .button { flex: none; white-space: nowrap; }
+.toolbar input { flex: none; width: 70px; margin: 0; }
+.toolbar .button { height: 32px; margin: 0; }
+#sweep-status { min-width: 0; }
+
+/* Виды: SVG с сервера, кнопка PNG и подсказка при наведении */
+.view {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--chart-background);
+}
+
+#page-sweep .view { margin: 0 8px; }
+
+.view-host,
+.view-host > svg { position: absolute; inset: 0; display: block; }
+
+.png {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-background);
+  color: var(--text-muted);
+  font: 11px var(--font-ui);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.view:hover .png,
+.png:focus-visible { opacity: 1; }
+.png:hover { color: var(--text-primary); }
+
+.crosshair {
+  position: absolute;
+  width: 1px;
+  background: var(--text-muted);
+  pointer-events: none;
+}
+
+.tooltip {
+  position: absolute;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-background);
+  color: var(--text-primary);
+  font: 12px var(--font-mono);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tooltip .swatch {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+[hidden] { display: none !important; }
+
+/* Вкладка «Цифры» */
+#page-digits { grid-template-rows: auto minmax(0, 1fr); padding: 12px; }
+#digits-message { margin: 0 0 10px; }
+
+.digits {
+  display: grid;
+  grid-template-columns: 304px 200px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.digits-input,
+.digits-preview { display: flex; flex-direction: column; align-items: flex-start; }
+
+.digits-input .button { width: 280px; height: 30px; margin: 6px 0 0; }
+
+#pad {
+  width: 280px;
+  height: 280px;
+  border: 1px solid var(--border);
+  background: #000;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+#preview {
+  width: 168px;
+  height: 168px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  background: #000;
+  image-rendering: pixelated;
+}
+
+.verdict { margin-top: 12px; color: var(--accent-green); font: 700 26.7px var(--font-ui); }
+.truth { margin-top: 4px; color: var(--text-muted); }
+
+.digits.disabled .digits-input { opacity: 0.45; pointer-events: none; }

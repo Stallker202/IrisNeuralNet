@@ -14,11 +14,11 @@ namespace IrisNeuralNet.Lab.Scenarios;
 internal static class LabConsole
 {
     public const string Usage =
-        "Использование: IrisNeuralNet.Lab --console [iris|sonar|boston|mnist|all ...] [--quick] [--out <папка>] [--image <файл>] [--no-charts]\n" +
-        "  без датасета      — iris (как раньше)\n" +
+        "Лабораторные в консоли: IrisNeuralNet.Lab --console [iris|sonar|boston|mnist|all ...] [--quick] [--out <папка>] [--image <файл>] [--no-charts]\n" +
+        "  без датасета      — iris\n" +
         "  --quick           — в 10 раз меньше эпох (быстрая проверка)\n" +
         "  --out <папка>     — куда сохранить results.md и графики (по умолчанию ./reports)\n" +
-        "  --image <файл>    — mnist: распознать своё изображение цифры (png/jpg/bmp)\n" +
+        "  --image <файл>    — mnist: распознать своё изображение цифры (PNG)\n" +
         "  --no-charts       — не сохранять графики";
 
     private static readonly ILabScenario[] Scenarios =

@@ -29,11 +29,14 @@ internal static class MnistDownloader
         (MnistDataLoader.TestLabelsFile, "f7ae60f92e00ec6debd23a6088c31dbd2371eca3ffa0defaefb259924204aec6"),
     };
 
-    /// <summary>Кэш как у Keras: %LOCALAPPDATA%/IrisNeuralNet/datasets/mnist.</summary>
+    /// <summary>
+    /// Кэш как у Keras: LocalApplicationData/IrisNeuralNet/datasets/mnist —
+    /// %LOCALAPPDATA% на Windows, ~/Library/Application Support на macOS, ~/.local/share на Linux.
+    /// </summary>
     public static string CacheDirectory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IrisNeuralNet", "datasets", "mnist");
 
-    /// <summary>Папка «mnist» рядом с exe (офлайн-копия) или кэш; null, если файлов нет нигде.</summary>
+    /// <summary>Папка «mnist» рядом с исполняемым файлом (офлайн-копия) или кэш; null, если файлов нет нигде.</summary>
     public static string? FindLocalDirectory()
     {
         string bundled = DataFiles.Resolve("mnist");

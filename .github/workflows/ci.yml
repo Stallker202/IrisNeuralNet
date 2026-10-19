@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -10,28 +12,86 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  # Сборка, тесты и быстрый прогон всех лабораторных на трёх ОС.
   build-test:
-    runs-on: windows-latest
+    name: build & test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
-      - name: Build Lab (+ core)
-        run: dotnet build IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release
-      - name: Build benchmarks
-        run: dotnet build IrisNeuralNet.Benchmarks/IrisNeuralNet.Benchmarks.csproj -c Release
-      - name: Test
+      - name: Build lab and benchmarks
+        shell: bash
+        run: |
+          dotnet build IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release
+          dotnet build IrisNeuralNet.Benchmarks/IrisNeuralNet.Benchmarks.csproj -c Release
+      - name: Test (includes the web API over real Kestrel)
         run: dotnet test IrisNeuralNet.Tests/IrisNeuralNet.Tests.csproj -c Release --logger "console;verbosity=normal"
       - name: Smoke-run lab scenarios (--quick)
         run: dotnet run --project IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release --no-build -- --console all --quick --out reports-quick
 
-  # Полный прогон лабораторных (≈5–10 минут) с коммитом отчётов (results.md + PNG) в папку reports/.
+  # Готовые сборки без установленного .NET. macOS собирается на macOS: SDK подписывает
+  # бинарник ad-hoc-подписью, без неё Apple Silicon не запустит исполняемый файл.
+  package:
+    name: package (${{ matrix.rid }})
+    needs: build-test
+    strategy:
+      matrix:
+        include:
+          - { rid: win-x64, os: ubuntu-latest, archive: zip }
+          - { rid: linux-x64, os: ubuntu-latest, archive: tar.gz }
+          - { rid: osx-arm64, os: macos-latest, archive: tar.gz }
+          - { rid: osx-x64, os: macos-latest, archive: tar.gz }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+      - name: Publish self-contained
+        run: >
+          dotnet publish IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release -r ${{ matrix.rid }}
+          --self-contained -p:PublishSingleFile=true -p:DebugType=none
+          -o publish/IrisNeuralNet-${{ matrix.rid }}
+      - name: Archive
+        shell: bash
+        run: |
+          cd publish
+          name="IrisNeuralNet-${{ matrix.rid }}"
+          if [ "${{ matrix.archive }}" = "zip" ]; then zip -qr "../$name.zip" "$name"; else tar -czf "../$name.tar.gz" "$name"; fi
+      - uses: actions/upload-artifact@v5
+        with:
+          name: IrisNeuralNet-${{ matrix.rid }}
+          path: IrisNeuralNet-${{ matrix.rid }}.${{ matrix.archive }}
+
+  # Тег vX.Y.Z → GitHub Release с архивами под все ОС.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "IrisNeuralNet $GITHUB_REF_NAME" --generate-notes
+
+  # Полный прогон лабораторных (≈5 минут) с коммитом отчётов (results.md + SVG) в reports/.
   # Запуск: вручную (workflow_dispatch) или коммитом с [labs] в сообщении.
   labs:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[labs]')
     needs: build-test
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -42,7 +102,6 @@ jobs:
       - name: Run all lab scenarios
         run: dotnet run --project IrisNeuralNet.Lab/IrisNeuralNet.Lab.csproj -c Release -- --console all --out reports
       - name: Commit reports
-        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

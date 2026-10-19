@@ -33,7 +33,7 @@ internal sealed class MnistScenario : ILabScenario
         Dataset train = source.Train;
         Dataset test = source.Test!.Value;
         context.Text(directory == MnistDownloader.CacheDirectory
-            ? "Файлы IDX: кэш %LOCALAPPDATA%\\IrisNeuralNet\\datasets\\mnist (скачиваются при первом запуске, проверка SHA-256)."
+            ? "Файлы IDX: пользовательский кэш IrisNeuralNet/datasets/mnist (скачиваются при первом запуске, проверка SHA-256)."
             : $"Файлы IDX: {directory}");
         context.Text($"Форма обучающих изображений: ({train.RowCount}, {Side}, {Side}), меток: ({train.RowCount},); " +
                      $"тестовых: ({test.RowCount}, {Side}, {Side}) и ({test.RowCount},).");
