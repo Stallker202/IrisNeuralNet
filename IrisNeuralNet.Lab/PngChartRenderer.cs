@@ -56,9 +56,10 @@ internal sealed class PngChartRenderer : IChartRenderer
             colored[i] = new ChartSeries(series[i].Name, Palette[i % Palette.Length], series[i].Values);
         }
 
-        // Легенда с длинными именами моделей требует ширины.
+        // Легенда с длинными именами моделей требует ширины; подпись оси Y — в заголовке, если её там нет.
+        string caption = title.Contains(yLabel, StringComparison.OrdinalIgnoreCase) ? title : $"{title} ({yLabel})";
         Save(path, PanelWidth + 260, PanelHeight, g =>
-            ChartPainter.Draw(g, new Rectangle(0, 0, PanelWidth + 260, PanelHeight), $"{title} ({yLabel})", colored, ChartStyle.Light));
+            ChartPainter.Draw(g, new Rectangle(0, 0, PanelWidth + 260, PanelHeight), caption, colored, ChartStyle.Light));
     }
 
     public void SaveDigits(string path, string title, IReadOnlyList<DigitSample> samples)

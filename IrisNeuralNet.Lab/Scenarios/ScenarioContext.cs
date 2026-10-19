@@ -24,6 +24,7 @@ internal sealed class ScenarioContext
 {
     private readonly StringBuilder _markdown = new();
     private readonly string _title;
+    private bool _inList;
 
     public ScenarioContext(string title, string reportDirectory, ScenarioOptions options, TextWriter output)
     {
@@ -45,6 +46,7 @@ internal sealed class ScenarioContext
 
     public void Section(string title)
     {
+        EndList();
         Output.WriteLine();
         Output.WriteLine($"=== {title} ===");
         _markdown.AppendLine().AppendLine($"## {title}").AppendLine();
@@ -52,6 +54,7 @@ internal sealed class ScenarioContext
 
     public void Text(string text)
     {
+        EndList();
         Output.WriteLine(text);
         _markdown.AppendLine(text).AppendLine();
     }
@@ -60,16 +63,19 @@ internal sealed class ScenarioContext
     {
         Output.WriteLine($"  • {text}");
         _markdown.AppendLine($"- {text}");
+        _inList = true;
     }
 
     public void Code(string text)
     {
+        EndList();
         Output.WriteLine(text);
         _markdown.AppendLine("```").AppendLine(text).AppendLine("```").AppendLine();
     }
 
     public void Table(TextTable table)
     {
+        EndList();
         Output.WriteLine(table.ToConsole());
         _markdown.AppendLine(table.ToMarkdown()).AppendLine();
     }
@@ -91,11 +97,20 @@ internal sealed class ScenarioContext
         return path;
     }
 
+    /// <summary>Пустая строка после списка: иначе следующий абзац Markdown «приклеится» к последнему пункту.</summary>
+    private void EndList()
+    {
+        if (!_inList) return;
+        _markdown.AppendLine();
+        _inList = false;
+    }
+
     private void Chart(string fileStem, string title, Action<string> render)
     {
         string? extension = Options.Charts.Extension;
         if (extension is null) return;
 
+        EndList();
         string fileName = fileStem + extension;
         render(PathOf(fileName));
         Output.WriteLine($"  [график] {fileName}");

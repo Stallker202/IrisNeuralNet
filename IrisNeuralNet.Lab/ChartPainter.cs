@@ -42,7 +42,7 @@ internal static class ChartPainter
 {
     private const int LeftMargin = 62;
     private const int TopMargin = 30;
-    private const int RightMargin = 150;
+    private const int MinLegendWidth = 150;
     private const int BottomMargin = 26;
     private const int GridRows = 4;
 
@@ -59,7 +59,7 @@ internal static class ChartPainter
         Rectangle plot = Rectangle.FromLTRB(
             bounds.Left + LeftMargin,
             bounds.Top + TopMargin,
-            bounds.Right - RightMargin,
+            bounds.Right - LegendWidth(g, series, style, bounds),
             bounds.Bottom - BottomMargin);
         if (plot.Width < 10 || plot.Height < 10)
         {
@@ -100,7 +100,7 @@ internal static class ChartPainter
 
         foreach (ChartSeries s in series)
         {
-            DrawSeries(g, plot, s, min, max);
+            DrawSeries(g, plot, s, MaxCount(series), min, max);
         }
 
         DrawLegend(g, plot, series, style);
@@ -139,7 +139,8 @@ internal static class ChartPainter
         }
     }
 
-    private static void DrawSeries(Graphics g, Rectangle plot, ChartSeries series, float min, float max)
+    /// <param name="epochCount">Длина самого длинного ряда: ось X общая, ряд из 150 эпох не растягивается до 500.</param>
+    private static void DrawSeries(Graphics g, Rectangle plot, ChartSeries series, int epochCount, float min, float max)
     {
         if (series.Values.Count < 2 || !AllFinite(series.Values))
         {
@@ -149,7 +150,7 @@ internal static class ChartPainter
         var points = new PointF[series.Values.Count];
         for (int i = 0; i < series.Values.Count; i++)
         {
-            points[i] = MapPoint(plot, i, series.Values.Count, series.Values[i], min, max);
+            points[i] = MapPoint(plot, i, epochCount, series.Values[i], min, max);
         }
 
         using (var pen = new Pen(series.Color, 2f))
@@ -208,6 +209,18 @@ internal static class ChartPainter
         }
 
         return true;
+    }
+
+    /// <summary>Ширина колонки легенды по самому длинному имени ряда (не больше половины графика).</summary>
+    private static int LegendWidth(Graphics g, IReadOnlyList<ChartSeries> series, ChartStyle style, Rectangle bounds)
+    {
+        float widest = 0f;
+        foreach (ChartSeries s in series)
+        {
+            widest = MathF.Max(widest, g.MeasureString(s.Name, style.LabelFont).Width);
+        }
+
+        return Math.Clamp((int)widest + 40, MinLegendWidth, Math.Max(MinLegendWidth, bounds.Width / 2));
     }
 
     private static int MaxCount(IReadOnlyList<ChartSeries> series)

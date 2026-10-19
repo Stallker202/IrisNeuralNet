@@ -98,11 +98,17 @@ internal static class ExperimentAnalysis
             ( > 0.15f, true) => $"переобучение: val_loss минимален на эпохе {minLoss.Epoch} ({MetricFormat.Loss(minLoss.ValidationLoss)}), " +
                                 $"в последних {tail} эпохах в среднем выше на {rise:P0}",
             ( > 0.05f, true) => $"слабые признаки переобучения: после эпохи {minLoss.Epoch} val_loss вырос в среднем на {rise:P0}",
+            _ when LargeGap(result) => "val_loss к концу ещё у минимума, но разрыв train/val велик — модель заметно лучше на обучающих данных " +
+                                       "(ранний признак переобучения либо шум маленькой валидации)",
             _ => "явных признаков переобучения нет: val_loss к концу обучения у своего минимума",
         };
 
         return $"{result.Config.Name}: {verdict}; {gap}";
     }
+
+    /// <summary>Разрыв «train лучше validation» больше 10 п.п. accuracy или 30% MAE.</summary>
+    private static bool LargeGap(ExperimentResult result) =>
+        result.Metric.HigherIsBetter ? Gap(result) > 0.10f : Gap(result) > 0.3f * result.Validation.Metric;
 
     /// <summary>Сравнение модели с эталонной: изменение валидационной метрики и времени обучения.</summary>
     public static string Versus(ExperimentResult reference, ExperimentResult candidate)
