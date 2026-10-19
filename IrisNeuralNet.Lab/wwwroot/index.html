@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iris Neural Lab</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23181a1f'/%3E%3Cg stroke='%234dabf7' stroke-width='2'%3E%3Cpath d='M8 9 16 16 8 23M16 16h8'/%3E%3C/g%3E%3Cg fill='%235ec979'%3E%3Ccircle cx='8' cy='9' r='3'/%3E%3Ccircle cx='8' cy='23' r='3'/%3E%3Ccircle cx='16' cy='16' r='3'/%3E%3Ccircle cx='24' cy='16' r='3'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="lab.css">
+  <script type="module" src="lab.js"></script>
+</head>
+<body>
+  <header id="status" class="status" role="status">подключение к лаборатории…</header>
+
+  <div class="layout">
+    <aside class="panel">
+      <label class="section" for="dataset">датасет</label>
+      <select id="dataset"></select>
+
+      <label class="section" for="scaling">предобработка признаков</label>
+      <select id="scaling"></select>
+
+      <label class="section" for="validation">доля validation</label>
+      <input id="validation" type="number" min="0.05" max="0.5" step="0.05">
+
+      <label class="section" for="hidden">скрытые слои (напр. 512, 256)</label>
+      <input id="hidden" class="mono" type="text" spellcheck="false" autocomplete="off">
+      <div id="hidden-error" class="error"></div>
+
+      <label class="section" for="optimizer">оптимизатор</label>
+      <select id="optimizer"></select>
+
+      <label id="lr-label" class="lr" for="lr">learning rate</label>
+      <input id="lr" type="range" min="0" max="1000" step="1">
+
+      <label class="section" for="epochs">эпох</label>
+      <input id="epochs" type="number" min="1" max="5000" step="10">
+
+      <label class="section" for="batch">batch size</label>
+      <input id="batch" type="number" min="1" max="4096" step="1">
+
+      <label class="check"><input id="early" type="checkbox"> early stopping (patience, эпох)</label>
+      <input id="patience" type="number" min="1" max="1000" step="5" value="20" disabled>
+
+      <label class="check"><input id="overlay" type="checkbox" checked> оверлей прошлого прогона</label>
+
+      <button id="start" class="button green" type="button">Start / Restart</button>
+      <button id="stop" class="button red" type="button">Stop</button>
+      <div id="hint" class="hint"></div>
+    </aside>
+
+    <main class="workspace">
+      <nav class="tabs" role="tablist">
+        <button class="tab active" type="button" role="tab" aria-selected="true" data-tab="training">Обучение</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="structure">Сеть и границы</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="sweep">Sweep</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" data-tab="digits">Цифры (MNIST)</button>
+      </nav>
+
+      <section class="page active" id="page-training" role="tabpanel">
+        <div class="view" data-view="loss"></div>
+        <div class="view" data-view="metric"></div>
+      </section>
+
+      <section class="page split" id="page-structure" role="tabpanel">
+        <div class="view" data-view="topology"></div>
+        <div class="view" data-view="boundary"></div>
+      </section>
+
+      <section class="page" id="page-sweep" role="tabpanel">
+        <div class="toolbar">
+          <label class="muted" for="sweep-epochs">эпох на прогон:</label>
+          <input id="sweep-epochs" type="number" min="1" max="5000" step="10">
+          <button id="sweep-run" class="button gold" type="button">Запустить sweep</button>
+          <button id="sweep-cancel" class="button red" type="button" disabled>Отмена</button>
+          <span id="sweep-status" class="muted"></span>
+        </div>
+        <div class="view" data-view="sweep"></div>
+      </section>
+
+      <section class="page" id="page-digits" role="tabpanel">
+        <p id="digits-message" class="muted"></p>
+        <div class="digits">
+          <div class="digits-input">
+            <canvas id="pad" width="280" height="280" aria-label="холст для цифры"></canvas>
+            <button id="pad-clear" class="button blue" type="button">Очистить</button>
+            <button id="pad-open" class="button blue" type="button">Открыть изображение…</button>
+            <button id="pad-sample" class="button blue" type="button">Случайная из теста</button>
+            <input id="pad-file" type="file" accept="image/*" hidden>
+          </div>
+          <div class="digits-preview">
+            <span class="muted">вход сети 28×28:</span>
+            <img id="preview" alt="вход сети 28×28">
+            <div id="verdict" class="verdict"></div>
+            <div id="truth" class="truth"></div>
+          </div>
+          <div class="view" id="bars"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

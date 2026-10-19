@@ -1,7 +1,11 @@
 {
   "profiles": {
-    "IrisNeuralNet.Lab": {
+    "Веб-лаборатория": {
       "commandName": "Project"
+    },
+    "Лабораторные в консоли (быстро)": {
+      "commandName": "Project",
+      "commandLineArgs": "--console all --quick"
     }
   }
 }

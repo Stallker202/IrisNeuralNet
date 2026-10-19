@@ -18,6 +18,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\IrisNeuralNet\IrisNeuralNet.csproj" />
+    <!-- Лаборатория: отрисовка, PNG, состояние и HTTP-API (internal-типы открыты через InternalsVisibleTo). -->
+    <ProjectReference Include="..\IrisNeuralNet.Lab\IrisNeuralNet.Lab.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
