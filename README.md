@@ -1,4 +1,4 @@
-# README.md — IrisNeuralNet
+﻿# README.md — IrisNeuralNet
 
 > Личная документация моего проекта: что я построил, почему принял каждое решение, что отверг, где ошибался и чему научился.
 
@@ -7,6 +7,8 @@
 ## 1. Как появился проект
 
 Отправной точкой послужила лабораторная работа «Классификация цветков ириса с помощью искусственных нейронных сетей в Keras»: датасет Iris (150 образцов, 4 признака, 3 класса), модель `Sequential(Dense(8, relu), Dense(3, softmax))`, оптимизатор `adam`, функция потерь `categorical_crossentropy`, `epochs=150`, `batch_size=10`, `validation_split=0.2`, графики matplotlib и эксперименты с архитектурами.
+
+Затем движок вырос до четырёх лабораторных: Iris (многоклассовая классификация), Sonar (бинарная), Boston Housing (регрессия + K-Fold) и MNIST (классификация изображений) — см. §16 и папку `reports/` с результатами.
 
 Методичка предлагает решать это на Python. Я решил пойти дальше и поставить себе другую задачу: **реализовать весь функционал лабораторной — и сверх него — на чистом C#**, написав нейросетевой движок с нуля. Мне было важно не воспроизвести сниппеты из методички, а понять и построить каждый механизм самостоятельно: прямой проход, обратное распространение ошибки, оптимизаторы, парсинг данных, сериализацию модели, визуализацию.
 
@@ -23,10 +25,10 @@
 ### 3.1 Проекты и граф зависимостей
 
 ```
-IrisNeuralNet.sln
+IrisNeuralNet.slnx
 ├── IrisNeuralNet            (class library, net8.0)          ← ядро, НОЛЬ NuGet-зависимостей
-├── IrisNeuralNet.Lab        (exe, net8.0-windows, WinForms)  ← лаборатория: консоль + UI
-├── IrisNeuralNet.Tests      (xUnit, net8.0)                  ← 65 юнит-тестов
+├── IrisNeuralNet.Lab        (exe, net8.0-windows, WinForms)  ← лаборатория: консольные сценарии лаб + UI
+├── IrisNeuralNet.Tests      (xUnit, net8.0)                  ← 129 тестов (124 метода)
 └── IrisNeuralNet.Benchmarks (exe, net8.0 + BenchmarkDotNet)  ← измерительный стенд
 ```
 
@@ -40,14 +42,18 @@ Lab отделён от ядра даже на уровне TFM: ядро кро
 
 ```
 IrisNeuralNet/
-├── MathCore/      SpanGuard, VectorOps, Activations, Pca2D
-├── Core/          ActivationFunction(+ReLU/Softmax), ActivationKind, ActivationFactory,
-│                  DenseLayer, NeuralNetwork, NetworkFactory, Buffers, Metrics,
-│                  ILossFunction + CategoricalCrossEntropyLoss, Trainer, Shuffler,
-│                  ModelFile, LoadedModel
-├── Optimizers/    IOptimizer, OptimizerState, SgdOptimizer, SgdMomentumOptimizer, AdamOptimizer
-├── Data/          IrisDataset, IrisDataLoader, OneHotEncoder, FeatureNormalizer, DatasetSplitter
-└── Diagnostics/   EpochMetrics, ITrainingObserver, NullTrainingObserver, MetricsRing
+├── MathCore/      SpanGuard, VectorOps, ParallelKernels, Activations, Pca2D
+├── Core/          ActivationFunction (+ReLU/Softmax/Sigmoid/Linear), ActivationKind, ActivationFactory,
+│                  DenseLayer, NeuralNetwork, NetworkFactory, Buffers, Shuffler,
+│                  TrainingTask (+MultiClass/Binary/Regression), Metric, Metrics,
+│                  ILossFunction (+CategoricalCE/BinaryCE/MeanSquaredError),
+│                  Trainer, TrainingOptions, Evaluation, ModelFile, LoadedModel
+├── Optimizers/    IOptimizer, OptimizerBase, OptimizerState, Sgd, SgdMomentum, RmsProp, Adam,
+│                  OptimizerKind, OptimizerFactory
+├── Data/          Dataset, DatasetSplitter, KFold, CsvDatasetLoader, Iris/Sonar/BostonHousing/Mnist loaders,
+│                  OneHotEncoder, FeatureNormalizer, DigitImagePreprocessor
+└── Diagnostics/   EpochMetrics, ITrainingObserver, NullTrainingObserver, CompositeTrainingObserver,
+                   MetricsRing, TrainingHistory, ModelSummary
 ```
 
 Правило размещения, которое я соблюдал: **MathCore** не знает о слоях; **Core** не знает о файлах и UI; **Data** не знает об обучении; **Diagnostics** — только контракты метрик. Когда я однажды положил PCA в Lab, тесты не смогли до него дотянуться (Tests не ссылается на Lab) — и это же стало причиной перенести PCA в ядро: математика живёт там, где её можно тестировать.
@@ -58,8 +64,8 @@ IrisNeuralNet/
 |---|---|
 | Ноль зависимостей ядра | В `IrisNeuralNet.csproj` нет ни одного `PackageReference` |
 | Ноль аллокаций в горячем пути | grow-only буферы (`Buffers.Rent`), span-сигнатуры, кэш кистей в UI |
-| DRY | `Shuffler` (trainer+splitter), `NetworkFactory` (session+sweep+tests), `Buffers.Rent` (layer+network+trainer), `ChartPainter` (loss+accuracy), `OptimizerState` (momentum+adam) |
-| Полиморфизм вместо switch | Активации, оптимизаторы, наблюдатели; единственный switch — `ActivationFactory` (создание полиморфных объектов по байту из файла) |
+| DRY | `Shuffler` (trainer+splitter+K-Fold), `Experiment` (UI+sweep+сценарии), `Buffers.Rent` (layer+network+trainer), `ChartPainter` (окно+PNG), `OptimizerBase` (все оптимизаторы), `ScenarioContext` (консоль+Markdown одним вызовом) |
+| Полиморфизм вместо switch | Активации, оптимизаторы, наблюдатели, типы задач (`TrainingTask`); switch только в фабриках, превращающих данные в объекты (`ActivationFactory` — байт из файла, `OptimizerFactory` — выбор в UI) |
 | Исключения вместо кодов ошибок | Все границы ввода: `SpanGuard`, loader, `ModelFile`, конструкторы |
 | Детерминизм | Явные seed везде: `Fit(..., seed)`, `NetworkFactory(..., seed)`, `Split(..., seed)`, sweep `BaseSeed+index` |
 | Границы модулей | Ядро ↔ UI только через `ITrainingObserver` и публичные span-свойства |
@@ -86,7 +92,7 @@ IrisNeuralNet/
 | TorchSharp / TensorFlow.NET | Обёртки над нативными рантаймами: нативные бинарники, версии CPU/CUDA-библиотек; |
 | MathNet.Numerics | Тянет BLAS-зависимости и свои 2D-типы матриц, ломает мою span-модель памяти |
 
-Цена собственного пути — я сам отвечаю за корректность градиентов. Компенсация: 65 тестов, включая ручные сверки формул и тест композиции softmax+cross-entropy.
+Цена собственного пути — я сам отвечаю за корректность градиентов. Компенсация: 129 тестов, включая ручные сверки формул, композиции softmax+CE и sigmoid+BCE и проверку градиентов конечными разностями.
 
 ### 4.3 Модель памяти: `Span<T>` + `Vector<T>`
 
@@ -177,8 +183,11 @@ for (; i < left.Length; i++) destination[i] = left[i] + right[i]; // хвост
 | `Max`, `Sum` | редукции | `Sum` через векторный аккумулятор + `Vector.Sum` |
 | `Dot` | скалярное произведение | используется в backward для dX |
 | `MatMul` | `left[m×k] · right[k×n]` | порядок циклов **i→k→j**: внутренний шаг — векторный `MultiplyAdd` по непрерывной строке `right`; кэш-дружественно и SIMD без транспонирования |
-| `MatMulWithTransposedLeft` | `left·right` (для dW = Xᵀδ) | та же идея: строка результата накапливается векторно |
+| `MatMulWithTransposedLeft` | `leftᵀ·right` (для dW = Xᵀδ) | та же идея: строка результата накапливается векторно |
+| `MatMulWithTransposedRight` | `left·rightᵀ` (для dX = δ·Wᵀ) | скалярные произведения строк без копии транспонированных весов |
 | `AddRowBroadcast` | прибавить биас к каждой строке батча | цикл по строкам с алиасингом in-place |
+
+Начиная с 2²² умножений (слои MNIST, 128×784×512) все три произведения раздаются по ядрам через `ParallelKernels`: строки результата делятся на непрерывные диапазоны, каждый элемент считает ровно один поток тем же кодом, что и последовательная версия, — результат бит-в-бит совпадает (закреплено тестом). Span нельзя захватить в лямбду, поэтому память закрепляется `fixed` на время синхронного `Parallel.For`: это первое и единственное место, где я открыл `unsafe` — по триггеру «большие матрицы MNIST», как и обещал в §13. Iris/Sonar/Boston остаются однопоточными: им параллелизм только мешает.
 
 Почему ikj, а не классический ijk: ijk даёт скалярное накопление с плохой локальностью по `right`; ikj превращает внутреннюю операцию в «строка × скаляр → строка», то есть ровно мой SIMD `MultiplyAdd`. Бенчмарк сравнивает это с наивным тройным циклом (baseline) и показывает кратный выигрыш.
 
@@ -198,7 +207,7 @@ for (; i < left.Length; i++) destination[i] = left[i] + right[i]; // хвост
 
 ### 6.1 Полиморфизм активаций
 
-`ActivationFunction` — абстрактный класс с `Apply`, `Backward`, `Kind`; реализации `ReLUActivation`, `SoftmaxActivation`.
+`ActivationFunction` — абстрактный класс с `Apply`, `Backward`, `Kind`; реализации `ReLUActivation`, `SoftmaxActivation`, `SigmoidActivation` (бинарная задача), `LinearActivation` (выход регрессии: a = z).
 
 Почему не enum+switch в слое: добавление tanh/sigmoid при enum потребовало бы правок во всех switch; полиморфизм делает добавление равным «новый класс» (Open/Closed). Почему не интерфейс: мне нужен общий контракт плюс место для будущих общих хелперов, а сериализация идёт через `Kind` (enum) — данные, а не поведение.
 
@@ -214,48 +223,60 @@ for (; i < left.Length; i++) destination[i] = left[i] + right[i]; // хвост
 1. `δ = act′(z, δa)` — `Activation.Backward`;
 2. `dW = Xᵀ·δ` — `MatMulWithTransposedLeft`;
 3. `dB = Σ_rows δ` — цикл `Add` в буфер биас-градиентов;
-4. `dX = δ·Wᵀ` — `Dot` по строкам весов.
+4. `dX = δ·Wᵀ` — `MatMulWithTransposedRight`; **первый слой dX не считает** (пустой span): градиент по входу сети никому не нужен, а это треть стоимости backward на 784 входах MNIST.
 
 Проверка `batchSize == _lastBatchSize` даёт понятный `InvalidOperationException` вместо тихой порчи при перепутанном порядке вызовов.
 
-**Probe:** read-only проход одного образца без записи в кэши. Появился из запрета, который я сам себе поставил: UI не смеет вызывать `Forward` на живой сети (это перезаписало бы `_lastInput`/`_preActivation` обучающего потока, и градиенты считались бы по чужим данным). Probe — честная граница «наблюдатель не вмешивается». Тест `Probe_MatchesForwardForSingleSample` гарантирует бит-в-бит совпадение с Forward.
+**Infer** (бывший Probe, теперь для батча): read-only проход без записи в кэши. Появился из запрета, который я сам себе поставил: UI не смеет вызывать `Forward` на живой сети (это перезаписало бы `_lastInput`/`_preActivation` обучающего потока, и градиенты считались бы по чужим данным). Infer — честная граница «наблюдатель не вмешивается». Тест `Infer_MatchesForwardForSingleSample` гарантирует бит-в-бит совпадение с Forward, `Infer_DoesNotDisturbTrainingCaches` — что вызов между Forward и Backward не меняет градиенты. `NeuralNetwork.Infer` ходит через пару ping-pong буферов; на нём же построена оценка в Trainer.
 
 ### 6.3 `NeuralNetwork`
 
 - `Forward`: цепочка слоёв через один scratch-буфер. Доказательство безопасности алиасинга, которое я провёл и зафиксировал комментарием-намерением: слой полностью читает вход на этапе MatMul в свой внутренний `_preActivation` и лишь потом пишет активацию в выходной span; значит перезапись входа после чтения безопасна.
 - `Backward`: симметрично, отдельный gradient-scratch; слой читает `δa` полностью (шаг 1) до записи `dX` в тот же буфер.
-- `Predict`/`PredictClass`: инференс одного образца; буфер вероятностей grow-only.
+- `Predict`/`PredictClass`: инференс одного образца через `Infer` (кэши обучения не трогаются); буфер вероятностей grow-only.
 - `Layers` (`ReadOnlySpan<DenseLayer>`) — окно для оптимизаторов, ModelFile и UI без нарушения инкапсуляции массива.
 
 ### 6.4 Вспомогательные
 
 - `Buffers.Rent(ref array, required)` — единая точка grow-only аренды (DRY между слоем, сетью, трейнером).
-- `NetworkFactory.Create(inputDim, hidden[], classCount, seed)` — единственное место сборки архитектуры из спецификации; используется TrainingSession, SweepRunner и тестами. Детерминизм seed зафиксирован тестом.
-- `Metrics.Accuracy/ArgMax` — метрики как чистые функции над span.
+- `NetworkFactory.Create(inputDim, hidden, task, classCount, seed)` — единственное место сборки архитектуры; выходной слой берётся из типа задачи. Детерминизм seed зафиксирован тестом.
+- `Metrics.Accuracy/BinaryAccuracy/MeanAbsoluteError/ArgMax` — метрики как чистые функции над span; `Metric` — именованная метрика с направлением «лучше» (accuracy ↑, MAE ↓) для выбора лучшей эпохи и модели.
 - `Shuffler.Shuffle` — Fisher–Yates, общий для Trainer и DatasetSplitter.
 
 ---
 
-## 7. Функция потерь и метрики
+## 7. Типы задач, функции потерь и метрики
 
-`ILossFunction { Compute; Backward; }`, реализация `CategoricalCrossEntropyLoss`.
+**`TrainingTask` (Strategy)** — тип задачи задаёт всё, что от него зависит: выходной слой, функцию потерь, метрику и кодирование меток.
 
-- `Compute = −(1/N) Σ_rows Σ_c y·ln(max(p, ProbabilityFloor))`;
-- `Backward: δa = −y / max(p, ProbabilityFloor) / N`.
+| Задача | Выход | Потери | Метрика | Метки |
+|---|---|---|---|---|
+| `TrainingTask.MultiClass` (Iris, MNIST) | softmax, K нейронов | categorical CE | accuracy | one-hot |
+| `TrainingTask.Binary` (Sonar) | sigmoid, 1 нейрон | binary CE | accuracy (p ≥ 0.5) | 0/1 |
+| `TrainingTask.Regression` (Boston) | linear, 1 нейрон | MSE | MAE | значение |
 
-`ProbabilityFloor = 1e-8f` — именованная константа (никаких магических чисел): защищает от `−inf`/`NaN`, если softmax «схлопнул» вероятность в ноль, и сохраняет градиентный сигнал. Деление на N означает усреднение градиентов по батчу — оптимизаторы работают с несмещённой оценкой.
+Раньше выбор «sigmoid/softmax + BCE/CE» был `switch` по `TaskKind`, скопированный в `TrainingSession` и `SweepRunner`; новый тип задачи потребовал бы правок во всех местах. Теперь это новый класс (Open/Closed).
 
-Мой тест-жемчужина: `Backward_ComposesWithSoftmaxToPredictedMinusTarget` проверяет, что раздельные компоненты (loss → softmax-jacobian) в композиции дают теоретическое `A − Y`. Это моя страховка от ситуации «формулы по отдельности верны, вместе — нет».
+`ILossFunction { Compute; Backward; }` — контракт «среднее по строкам»: благодаря ему Trainer оценивает большие выборки кусками и взвешивает их числом строк.
+
+- **CategoricalCE:** `−(1/N) Σ y·ln(max(p, 1e-38))`, `δa = −y / max(p, floor) / N`. Floor намеренно крошечный: при p ≥ floor композиция с softmax даёт точное `(p − y)/N`.
+- **BinaryCE:** p отсекается в `[1e-7, 1 − 1e-7]`. Было `1e-8` — но `1 − 1e-8` во float округляется до `1f`, и `ln(1 − p)` давал −∞ (NaN в градиенте при уверенной ошибке). 1e-7 — порядок машинного эпсилона float, как `epsilon` в Keras.
+- **MSE:** `(1/(N·W)) Σ (p − y)²`, градиент `2(p − y)/(N·W)` — как `mse` в Keras.
+
+Тесты-страховки: композиции softmax+CE и sigmoid+BCE дают `p − y`; плюс **проверка градиентов конечными разностями** (`GradientCheckTests`) для всех трёх связок — аналитический backprop сверяется с численным `[L(w+ε) − L(w−ε)] / 2ε` по каждому весу.
 
 ---
 
 ## 8. Оптимизаторы
 
-Контракт: `IOptimizer.Step(NeuralNetwork)` — обновление всех параметров сети по накопленным градиентам. Состояние (velocity/m/v) живёт в оптимизаторе, проаллоцировано один раз через `OptimizerState.ForWeights/ForBiases`; слои остаются чистой математикой.
+Контракт: `IOptimizer { LearningRate; Step(NeuralNetwork) }`. `OptimizerBase` (Template Method) делает общее: валидирует learning rate, проверяет привязку stateful-оптимизатора к своей сети и обходит тензоры `[W₀, b₀, W₁, b₁, …]`; наследник описывает только `Update(параметры, градиенты, индекс тензора)`. Раньше проверка владельца и свойство LearningRate были скопированы в каждый класс. Состояние живёт в оптимизаторе (`OptimizerState.Create` — буфер на тензор).
 
-- **SGD:** `p -= lr·g` → реализован как `MultiplyAdd(g, -lr, p)`.
-- **SGD+Momentum:** `v = μv − lr·g; p += v` → три SIMD-примитива (`Scale`, `MultiplyAdd`, `Add`).
-- **Adam:** классические m/v, bias-correction, скалярный цикл с `MathF.Sqrt`.
+- **SGD:** `p -= lr·g` → `MultiplyAdd(g, -lr, p)`.
+- **SGD+Momentum:** `v = μv − lr·g; p += v` → `Scale`, `MultiplyAdd`, `Add`.
+- **RMSprop** (нужен в Boston и MNIST): `v = ρv + (1−ρ)g²; p -= lr·g / (√v + ε)`, умолчания как в Keras (lr 0.001, ρ 0.9, ε 1e-7).
+- **Adam:** классические m/v, bias-correction.
+
+`OptimizerFactory.Create(kind, network, lr)` — единственное сопоставление «выбор в UI/конфиге → класс».
 
 Почему Adam скалярный: доля Adam в стоимости шага при моих размерах пренебрежима относительно MatMul; читаемость формулы важнее микросекунд. SIMD-версия занесена в моё меню оптимизаций с триггером «если профиль покажет иное». Оптимизация по измерению, не по ощущению.
 
@@ -269,15 +290,20 @@ for (; i < left.Length; i++) destination[i] = left[i] + right[i]; // хвост
 
 ### 9.1 `Trainer`
 
-Mini-batch цикл: shuffle порядка строк (seed) → батчи через gather в арендованные буферы → Forward → loss.Backward → network.Backward → optimizer.Step → раз в эпоху оценка train/val метрик и уведомление наблюдателя. Кооперативная отмена: `CancellationToken` проверяется на границе эпохи.
+Mini-batch цикл: shuffle порядка строк (seed) → батчи через gather в арендованные буферы → Forward → loss.Backward → network.Backward → optimizer.Step → раз в эпоху оценка train/val и уведомление наблюдателя.
 
-Сигнатура-решение: пустой validation-span означает «без валидации» (вместо nullable-массивов и flag-аргументов; `span.IsEmpty` — естественное «нет данных»).
+- Параметры fit собраны в `TrainingOptions(Epochs, BatchSize, Seed, EarlyStoppingPatience)` вместо девяти аргументов; `Fit` возвращает `EpochMetrics` последней эпохи, `Evaluate` — `Evaluation(Loss, Metric)` (аналог `model.evaluate`).
+- **Оценка кусками** по 1024 строки через `Infer`: раньше вся выборка шла одним Forward, и на MNIST (60000×784) кэши слоёв занимали сотни мегабайт.
+- **Отмена перед каждым батчем** (раньше — раз в эпоху): эпоха MNIST длится секунды, и `Stop()` с ожиданием 2 с не успевал — старый прогон дописывал метрики в кольцо нового.
+- Пустой validation-span означает «без валидации».
 
 Свойство «ноль аллокаций в установившемся режиме» достигается совокупностью: grow-only буферы батчей/предсказаний/градиентов, отсутствие LINQ, отсутствие строк в цикле. BenchmarkDotNet (`TrainingBenchmarks`, `MemoryDiagnoser`) это измеряет.
 
 ### 9.2 Наблюдатели
 
-- `EpochMetrics` — readonly struct (epoch, train/val loss, train/val accuracy): значение, а не объект с поведением → struct.
+- `EpochMetrics` — readonly record struct (epoch, train/val loss, train/val **metric** — accuracy или MAE в зависимости от задачи).
+- `TrainingHistory` — аналог Keras History: ряды по эпохам и поиск лучшей эпохи; `CompositeTrainingObserver` — история + консоль одновременно.
+- `ModelSummary.Format` — сводка как `model.summary()` (Layer/Output Shape/Param #, строка Flatten для 28×28).
 - `ITrainingObserver.OnEpochCompleted(in EpochMetrics)` — `in` избегает копирования struct на границе.
 - `NullTrainingObserver.Instance` — Special Case: Trainer никогда не проверяет null.
 - `MetricsRing` — кольцевой буфер эпох для UI: producer — поток обучения, consumer — поток кадров; короткий lock.
@@ -288,9 +314,11 @@ Mini-batch цикл: shuffle порядка строк (seed) → батчи ч�
 
 ## 10. Data pipeline
 
-### 10.1 `IrisDataLoader` — парсинг без строк
+### 10.1 `CsvDatasetLoader` — парсинг без строк
 
-Читаю файл как `byte[]`, два прохода: `CountRows` (учёт пустых строк, CRLF) → точные массивы → `ParseRow` с `Utf8Parser.TryParse` по `ReadOnlySpan<byte>`. Метки сверяю `SequenceEqual` с таблицей эталонов; ошибки — `FormatException` с номером строки и сутью («expected ',' at offset N», «unknown class label '...'»).
+Читаю файл как `byte[]`, два прохода: `CountRows` (учёт пустых строк, CRLF) → точные массивы → `ParseRow` с `Utf8Parser.TryParse` по `ReadOnlySpan<byte>`. Последняя колонка — имя класса (`LoadClassification`, сверка `SequenceEqual`) или число (`LoadRegression`, Boston). Ошибки — `FormatException` с номером строки и сутью («expected ',' at offset N», «unknown class label 'Iris-unknown'»). `IrisDataLoader`, `SonarDataLoader`, `BostonHousingDataLoader` — однострочные описания формата поверх него.
+
+**MNIST** (`MnistDataLoader`) читает оригинальный формат IDX (big-endian заголовок, затем байты; `.gz` распаковывается `GZipStream`), картинка 28×28 «вытягивается» в 784 признака — аналог Flatten. В UI и консоли файлы скачиваются при первом обращении в кэш (`%LOCALAPPDATA%\IrisNeuralNet\datasets\mnist`, как `~/.keras/datasets`) и проверяются по SHA-256 оригинальных архивов; офлайн — положить файлы в папку `mnist` рядом с exe.
 
 Почему не `StreamReader.ReadLine + Split + float.Parse`: каждая такая операция — аллокация строки и массива подстрок; на 150 строках это не беда, но мой принцип «граница системы парсит байты, а не строки» масштабируется на большие датасеты и устраняет культурные сюрпризы парсинга чисел.
 
@@ -300,11 +328,13 @@ Mini-batch цикл: shuffle порядка строк (seed) → батчи ч�
 
 Почему фит только на train: иначе статистики validation «протекают» в обучение — нечестная метрика (data leakage). Для меня это методологическая причина, важнее скорости.
 
-### 10.3 `DatasetSplitter`, `OneHotEncoder`, `IrisDataset`
+### 10.3 `Dataset`, `DatasetSplitter`, `KFold`, `OneHotEncoder`, `DigitImagePreprocessor`
 
-- Split: детерминированная перестановка (seed) + разбиение 80/20; возвращает два новых `IrisDataset` (копии строк), исходный не мутируется.
-- OneHot: две перегрузки — аллоцирующая и в span (DRY-делегирование); граница класса проверяется трюком `(uint)cls >= (uint)classCount` (ловит и отрицательные одним сравнением).
-- `IrisDataset` — readonly struct-обёртка над массивами: value-семантика передачи, span-доступ, защита от случайной подмены массивов.
+- `Dataset` (бывший `IrisDataset`, который на деле хранил и Sonar) — признаки + **одна метка на строку**: индекс класса или значение регрессии (`ClassCount = 0`). Кодирование в цели сети — дело `TrainingTask`. `Select`/`Slice` — копии строк для разбиений.
+- Split: детерминированная перестановка (seed); размер train — `floor(rows·(1 − fraction))`, как в Keras: для Boston ровно 404/102. В отличие от `validation_split` строки перемешиваются — иначе в валидацию отсортированных iris.csv/sonar.csv попал бы один класс.
+- `KFold.Split(dataset, k)` — последовательные блоки, как в листинге Boston; остаток строк всегда в обучении.
+- OneHot: граница класса проверяется трюком `(uint)cls >= (uint)classCount`.
+- `DigitImagePreprocessor` приводит любую картинку цифры к виду MNIST: инверсия светлого фона, рамка 20×20 с сохранением пропорций (ресэмплинг усреднением по площади), центр масс в центр поля 28×28 — та же процедура, которой готовили датасет. Без неё сеть видит «чужое» распределение.
 
 ---
 
@@ -320,21 +350,26 @@ Mini-batch цикл: shuffle порядка строк (seed) → батчи ч�
 
 ### 12.1 `Program`: два режима
 
-`--console` — headless-прогон: подготовка данных → обучение → отчёт → ASCII-графики → save/load модели с верификацией загруженной копии на сырых признаках. Без аргументов — WinForms UI. `Main` только ловит ошибки и возвращает код выхода; вся логика в `Run`/`RunUi` (error handling — отдельная ответственность). `PreparedData` (required-свойства) — DTO границы «подготовка данных», общий для обоих режимов (DRY).
+Без аргументов — WinForms UI. `--console [iris|sonar|boston|mnist|all] [--quick] [--out папка] [--image файл] [--no-charts]` — практическая часть лабораторных шаг за шагом (см. §15). Код Lab разложен по слоям:
 
-### 12.2 Консольный наблюдатель и `AsciiChart`
+- `Experiments/` — каталог датасетов (`Datasets`: файл, задача, умолчания из методички), `DataPreparation` → `PreparedData`, `Experiment` (единственное место «данные + конфиг → сеть, оптимизатор, тренер»; его используют UI, sweep и сценарии), `ArchitectureParser` («512, 256» ↔ [512, 256]), `MnistDownloader`.
+- `Scenarios/` — по классу на лабу (`IrisScenario`, `SonarScenario`, `BostonScenario`, `MnistScenario`) и общие шаги: `ExperimentRunner` (summary → fit → evaluate → график), `ExperimentAnalysis` (таблица сравнения, выбор лучшей модели, диагноз переобучения), `CrossValidation`, `ModelCheckpoint` (save → load → проверка на сырых признаках). `ScenarioContext` пишет каждую запись сразу в консоль и в `results.md`.
+- `Reporting/` — платформенно-независимые таблицы, форматирование метрик, прогресс; `IChartRenderer` — графики. PNG рисует `PngChartRenderer` тем же `ChartPainter`, что и окно, в светлой теме. Сценарии не знают про System.Drawing и запускаются на любой ОС (графики там пропускаются).
 
-`ConsoleTrainingObserver` печатает строку эпохи каждые 10 эпох и копит историю; `AsciiChart.Print` — универсальный двумерный рендерер двух серий (loss и accuracy рисуются одним кодом). Это мой аналог «Требования 3» методички (графики истории обучения), выполненный без matplotlib.
+### 12.2 Консольный прогресс и графики
+
+`ConsoleProgress` печатает строку эпохи ~10 раз за обучение (аналог `verbose=2`); графики истории (потери и метрика, train/val) сохраняются в PNG — аналог `plot_training_history` из методичек, без matplotlib.
 
 ### 12.3 `TrainingSession` — потоковая модель UI-обучения
 
-- Сеть строится и обучается в фоновом `Task.Run`;
-- ссылка на текущую сеть публикуется через `Volatile.Write/Read` (UI читает веса для визуализации без гонок по ссылкам);
-- `LearningRate` проксируется в живой оптимизатор (атомарная запись float);
-- `Stop()` = cancel + ограниченное ожидание; `OperationCanceledException` — нормальный путь, не ошибка;
-- архитектура строится через `NetworkFactory` (DRY с sweep и тестами).
+- Сеть строится через `Experiment` и обучается в фоновом `Task.Run`;
+- ссылка на текущую сеть публикуется через `Volatile.Write/Read`;
+- `LearningRate` проксируется в живой оптимизатор любого типа (`IOptimizer.LearningRate`);
+- `Stop()` = cancel + ожидание завершения (отмена проверяется перед каждым батчем, ждать недолго), ошибки прогона показываются в статусе.
 
-UI-поток и поток обучения не блокируют друг друга: метрики текут через `MetricsRing`, топология читает веса через `Probe`.
+Окно (`LabForm`) теперь только связывает части: `ControlPanel` (датасет, предобработка, **произвольная архитектура** «60, 15», **выбор оптимизатора**, LR, эпохи, batch, early stopping), `RunHistory` (текущий и прошлый прогон для оверлея вместо восьми параллельных списков), подготовка данных — асинхронно (MNIST грузится секунды, окно не замирает).
+
+UI-поток и поток обучения не блокируют друг друга: метрики текут через `MetricsRing`, топология читает веса через `NetworkProbe` (`DenseLayer.Infer`).
 
 ### 12.4 Тема и графики
 
@@ -342,11 +377,11 @@ UI-поток и поток обучения не блокируют друг д
 
 ### 12.5 `TopologyView`
 
-Рёбра = веса: цвет — знак (синий/красный), альфа и толщина — |w|/max|w|; слабые рёбра (<4%) не рисуются (визуальный шум). Нейроны: заливка = squash-активация `a/(1+|a|)` → [0,1] через `UiTheme.Mix`. Подписи колонок: размер + тип активации. Данные берутся через `NetworkProbe` (Probe-проходы), поэтому наблюдение не вмешивается в обучение.
+Рёбра = веса: цвет — знак (синий/красный), альфа и толщина — |w|/max|w|; слабые рёбра (<4%) не рисуются (визуальный шум). Широкие слои (784 входа MNIST, 512 нейронов) прореживаются до 24 равномерно выбранных нейронов — иначе кадр рисовал бы сотни тысяч линий. Нейроны: заливка = squash-активация `a/(1+|a|)` → [0,1] через `UiTheme.Mix`. Подписи колонок: размер + тип активации. Данные берутся через `NetworkProbe` (проходы `Infer`), поэтому наблюдение не вмешивается в обучение.
 
 ### 12.6 `DecisionBoundaryView` + `Pca2D`
 
-Heatmap 56×40 клеток в плоскости PC1×PC2: центр клетки → `Reconstruct` в 4D → `Probe` → argmax → цвет класса с альфой по уверенности; поверх — реальные образцы (точки с обводкой). Кисти кэшируются в массиве `[class, 17]` лениво; `Dispose` освобождает только созданные (`brush?.Dispose()`) — мой урок null-слепоты массивов. PCA: mean → ковариация → Якоби → сортировка собственных значений → топ-2 компоненты → диапазоны с паддингом 8%.
+Heatmap 56×40 клеток в плоскости PC1×PC2: центр клетки → `Reconstruct` в исходное пространство → `Infer` → решение `ClassificationTask.PredictClass` → цвет класса с альфой по уверенности (раньше argmax по единственному выходу sigmoid всегда давал класс 0, и для Sonar карта была одноцветной); для регрессии — «поверхность предсказаний» синий → красный. Для 784 признаков PCA не строится — для MNIST есть вкладка «Цифры»; поверх — реальные образцы (точки с обводкой). Кисти кэшируются в массиве `[class, 17]` лениво; `Dispose` освобождает только созданные (`brush?.Dispose()`) — мой урок null-слепоты массивов. PCA: mean → ковариация → Якоби → сортировка собственных значений → топ-2 компоненты → диапазоны с паддингом 8%.
 
 ### 12.7 Sweep: `SweepRunner`, `SweepPanel`, `SweepHeatmapView`
 
@@ -354,13 +389,17 @@ Heatmap 56×40 клеток в плоскости PC1×PC2: центр клет�
 - `SweepPanel`: кнопка запуска, epochs-numeric, статус «N/M», живой приход результатов через `Progress<T>` (маршалинг в UI-поток), финал — лучшая конфигурация; `ContinueWith(TaskScheduler.FromCurrentSynchronizationContext())` для безопасного возврата в UI.
 - `SweepHeatmapView`: словарь `layers*100000+neurons → result`; цвет клетки red→gold→green по val accuracy; лучшая ячейка в белой рамке; пустые клетки тёмные (sweep ещё идёт).
 
-Это мои «Задачи 7 и 9» методички (эксперименты и выбор лучшей модели), доведённые до интерактивного инструмента.
+Это мои «Задачи 7 и 9» методички (эксперименты и выбор лучшей модели), доведённые до интерактивного инструмента. Sweep берёт оптимизатор, LR и batch из левой панели, выбирает лучшую ячейку с учётом направления метрики (accuracy ↑, MAE ↓), шкала цвета строится по фактическому диапазону результатов; прогон можно отменить.
+
+### 12.8 Вкладка «Цифры (MNIST)»
+
+Пункт 10 методички MNIST — классификация пользовательского изображения — как интерактивный инструмент: нарисуй цифру мышью, открой картинку или возьми случайный тестовый образец; рядом — вход сети 28×28 после `DigitImagePreprocessor` и столбики вероятностей softmax от сети, которая сейчас обучается.
 
 ---
 
 ## 13. Бенчмарки и моя политика оптимизаций
 
-`MathBenchmarks`: `NaiveTripleLoop` (baseline) vs `SimdMatMul` vs `SimdDot`, `[MemoryDiagnoser]`. `TrainingBenchmarks`: `FitTwentyEpochs` с `[IterationSetup]`-пересозданием сети (каждая итерация меряет одинаковое состояние).
+`MathBenchmarks`: `NaiveTripleLoop` (baseline) vs `SimdMatMul` vs `SimdDot`, `[MemoryDiagnoser]`. `TrainingBenchmarks`: `FitTwentyEpochs` с `[IterationSetup]`-пересозданием сети (каждая итерация меряет одинаковое состояние). `DenseLayerBenchmarks`: слой MNIST-размера (128 × 784 → 512) — forward, forward+backward с dX и без dX (первый слой).
 
 Правило чтения, которое я себе задал: только Release; колонки `Mean`, `Ratio`, `Allocated`. Ожидания: SIMD кратно быстрее базлайна; `Allocated = 0 B` в математике.
 
@@ -369,12 +408,12 @@ Heatmap 56×40 клеток в плоскости PC1×PC2: центр клет�
 | # | Гипотеза | Триггер | Цена/риск |
 |---|---|---|---|
 | 1 | SIMD-Adam (`Vector.SquareRoot`, `Vector.Divide`) | Заметная доля Adam в профиле `Fit` | Низкая: формула та же, тесты оптимизаторов защитят |
-| 2 | dX через MatMul с транспонированной копией весов вместо `Dot` на пару (i,k) | Большие `InputDim×OutputDim`, backward дороже forward | Средняя: копирование весов на каждый backward |
-| 3 | `Parallel.For` по строкам батча в `MatMul` | batch ≥ 64 и cols ≥ 64, один поток не загружает ядра | Средняя: детерминизм сохраняется (строки независимы), но sweep и так параллелен по прогонам |
+| 2 | ✅ dX через отдельное произведение `left·rightᵀ` + пропуск dX у первого слоя | Сработал на MNIST (784 входа) | Копия весов не понадобилась: строки W уже лежат подряд |
+| 3 | ✅ `Parallel.For` по строкам в трёх произведениях | Сработал на MNIST: батч 128 × 784 × 512 | Порог 2²² умножений: маленькие сети и sweep остаются однопоточными; детерминизм закреплён тестом |
 | 4 | Приближённый `exp` в Softmax | Почти никогда: Softmax — O(n), MatMul — O(n²) | **Отклоняю по умолчанию**: точность реальна, выигрыш мнимый |
 | 5 | ReadyToRun/self-contained публикация Lab | Долгий старт UI | Нулевая для кода |
 
-Порядок действий: снял цифры → выбрал строку → применил → повторил бенчмарк и прогнал все 65 тестов.
+Порядок действий: снял цифры → выбрал строку → применил → повторил бенчмарк и прогнал все тесты.
 
 ---
 
@@ -384,22 +423,30 @@ Heatmap 56×40 клеток в плоскости PC1×PC2: центр клет�
 
 | Класс | Кол-во | Что защищает |
 |---|---|---|
-| VectorOpsTests | 10 | SIMD-примитивы, хвосты, алиасинг-безопасность |
+| VectorOpsTests | 14 | SIMD-примитивы, хвосты, три вида произведений, параллельный путь против наивного эталона, детерминизм |
 | ActivationsTests | 8 | ReLU/Softmax fwd+bwd, инварианты (сумма=1, сдвиг, sum δz=0) |
-| DenseLayerTests | 10 | forward-семантика, backward-градиенты вручную, границы батчей, Probe |
+| BinaryTaskTests | 6 | sigmoid, BCE, композиция sigmoid+BCE = p − y, бинарная точность |
+| RegressionTests | 5 | Linear, MSE и её градиент, MAE, сходимость регрессии на y = 2x − 1 |
+| GradientCheckTests | 3 | аналитический backprop против конечных разностей для softmax+CE, sigmoid+BCE, linear+MSE |
+| DenseLayerTests | 10 | forward-семантика, backward вручную, границы батчей, Infer = Forward |
 | NeuralNetworkTests | 4 | цепочка слоёв, батчи, валидация размерностей |
 | CategoricalCrossEntropyLossTests | 4 | ручные значения, усреднение, композиция с softmax |
-| OptimizerTests | 4 | контракты SGD/momentum/Adam, чужая сеть |
+| TrainingTaskTests | 7 | кодирование меток, выходной слой и потери каждой задачи, решение по выходу, направление метрики |
+| OptimizerTests | 10 | SGD/momentum/Adam/RMSprop, фабрика, валидация LR, чужая сеть |
 | TrainerTests | 3 | сходимость на синтетике, несовпадение строк, отмена токеном |
+| TrainerBehaviourTests | 5 | оценка кусками = полный проход, Infer не портит кэши, отмена посреди обучения, early stopping, валидация опций |
+| DatasetTests | 11 | Select/Slice, размеры Keras-разбиения (Boston 404/102), K-Fold, CSV-регрессия, тексты ошибок |
+| MnistDataLoaderTests | 5 | IDX (.gz и распакованный), битый magic, обрезанный файл, несовпадение счётчиков |
+| DigitImagePreprocessorTests | 4 | рамка 20×20 и центр масс, пустое изображение, инверсия фона |
+| DiagnosticsTests | 4 | model.summary() с числами параметров Keras, история, композитный наблюдатель |
 | MetricsRingTests | 3 | порядок, wrap, clear |
 | IrisDataLoaderTests | 3 | парсинг/CRLF/пустые строки, битая метка, битая строка |
-| FeatureNormalizerTests | 2 | z-score, константный признак |
-| DatasetSplitterTests | 2 | сохранность строк/размеры, детерминизм seed |
-| OneHotEncoderTests | 2 | кодирование, выход за диапазон |
-| ModelFileTests | 5 | round-trip, normalizer, bad magic, truncation, PredictClass |
+| SonarDataLoaderTests | 2 | 60 признаков, метки R/M |
+| DataPipelineTests | 7 | z-score, константный признак, ÷255, сплит, one-hot |
+| ModelFileTests | 6 | round-trip, normalizer, bad magic, truncation, PredictClass, линейный выход регрессии |
 | NetworkFactoryTests | 3 | цепочка размерностей, пустая спецификация, детерминизм |
 | Pca2DTests | 2 | направление главной компоненты, round-trip проекции |
-| **Итого** | **65** | |
+| **Итого** | **129** | (124 метода, theory-тесты развёрнуты) |
 
 Запуск: Test Explorer → Run All или `dotnet test` (E2: тесты в один шаг).
 
@@ -407,32 +454,29 @@ Heatmap 56×40 клеток в плоскости PC1×PC2: центр клет�
 
 ## 15. Как запустить
 
-1. **Требования:** Visual Studio 2022 / `dotnet SDK 8.0`, Windows (для Lab).
-2. **Тесты:** `dotnet test` или Test Explorer → Run All → 65 green.
-3. **Консоль:** положить `iris.csv` (UCI, без заголовка) в `IrisNeuralNet.Lab` (csproj: `CopyToOutputDirectory=PreserveNewest`); запуск с аргументом `--console`.
-4. **UI:** запуск без аргументов → вкладки «Обучение», «Сеть и границы», «Sweep». Start/Restart — прогон; слайдер LR — live; смена нейронов/слоёв → Restart с оверлеем прошлого прогона.
-5. **Sweep:** вкладка Sweep → «Запустить sweep» → heatmap заполняется live, лучшая ячейка в рамке.
-6. **Бенчмарки:** `cd IrisNeuralNet.Benchmarks && dotnet run -c Release`.
-7. **Модель:** после консольного прогона рядом появляется `iris_model.nn`; загрузка верифицируется печатью accuracy загруженной копии.
+1. **Требования:** Visual Studio 2022 (17.13+ для `.slnx`) / `dotnet SDK 8.0`, Windows (для Lab).
+2. **Тесты:** `dotnet test IrisNeuralNet.Tests` или Test Explorer → Run All → 129 green. То же делает CI (GitHub Actions, windows-latest) на каждый push.
+3. **Лабораторные в консоли** (результаты — в `reports/<лаба>/results.md` + PNG):
+   ```
+   dotnet run --project IrisNeuralNet.Lab -c Release -- --console all
+   dotnet run --project IrisNeuralNet.Lab -c Release -- --console mnist --image my_digit.png
+   dotnet run --project IrisNeuralNet.Lab -c Release -- --console iris sonar --quick
+   ```
+   `--quick` — в 10 раз меньше эпох, `--out папка` — куда писать отчёт, `--no-charts` — без PNG. MNIST скачивается при первом запуске (~11 МБ).
+4. **UI:** запуск без аргументов → вкладки «Обучение», «Сеть и границы», «Sweep», «Цифры (MNIST)». Датасет в левой панели подставляет настройки из методички; архитектура задаётся строкой (`512, 256`), оптимизатор — списком, слайдер LR — live.
+5. **Бенчмарки:** `dotnet run -c Release --project IrisNeuralNet.Benchmarks`.
+6. **Модели:** сценарии сохраняют лучшую модель каждой лабы (`*.nn`, с нормализатором внутри) и проверяют загруженную копию на сырых признаках.
 
----
+## 16. Соответствие лабораторным работам
 
-## 16. Соответствие задачам лабораторной работы
+| Лабораторная | Задача и связка | Где сделано | Что сверх методички |
+|---|---|---|---|
+| Iris (Keras, многоклассовая) | 4 → 8 → 3, softmax + categorical CE, adam | `IrisScenario`, UI | 10 вариантов (нейроны, слои, batch, rmsprop/sgd, 500 эпох, z-score), выбор лучшей модели, save/load |
+| Sonar (бинарная) | 60 → 60 → 1, sigmoid + binary CE; эксперименты 60 → 30 → 1 и 60 → 60 → 15 → 1 | `SonarScenario`, UI | 5-fold перекрёстная проверка тех же архитектур (валидация из 21 образца — шум) |
+| Boston Housing (регрессия) | 13 → 64 → 64 → 1, linear + MSE, rmsprop, метрика MAE; K-Fold (K = 4); 50 vs 100 эпох | `BostonScenario`, UI | разброс MAE по блокам, замечание о подглядывании в тест |
+| MNIST (изображения) | Flatten → 256 → 10; 512 → 256 → 10 (≥ 95%); Adam vs RMSprop; классификация своего изображения | `MnistScenario`, вкладка «Цифры» | матрица ошибок, сетка ошибок, MNIST-предобработка своих картинок, рисование мышью |
 
-| Задача методички | Моё покрытие |
-|---|---|
-| 1. Основы многоклассовой классификации | softmax + categorical CE + one-hot, выведено и объяснено в §5–7 |
-| 2. Загрузка и обработка датасета | §10: байт-парсер, z-score, split, one-hot |
-| 3. Проектирование модели | §6: слои/сеть/фабрика архитектур |
-| 4. Параметры обучения | UI-контролы, live-LR, конфиги sweep |
-| 5. Обучение модели | Trainer mini-batch + отмена |
-| 6. Оценка производительности | train/val loss+acc, ASCII и live-графики, отчёты |
-| 7. Эксперименты с архитектурами | sweep «нейроны × слои», оверлеи прогонов |
-| 8. Визуализация обучения | live-кривые, топология весов, PCA-границы |
-| 9. Выбор лучшей модели | best-cell sweep + персистентность ModelFile |
-| Сверх методички | персистентность с нормализатором, PCA, бенчмарки, 65 тестов, ноль зависимостей ядра |
-
----
+Для каждой лабы сценарий повторяет пункты «Хода работы»: формы данных, предобработка, `model.summary()`, обучение с прогрессом, `evaluate`, графики потерь и метрики, сравнительная таблица и автоматический разбор (влияние эпох/слоёв/нейронов/оптимизаторов, признаки переобучения по val_loss). Это материал для пунктов 7–8 «Требований к отчёту».
 
 ## 17. Мои конвенции кода
 
@@ -440,7 +484,7 @@ Heatmap 56×40 клеток в плоскости PC1×PC2: центр клет�
 - XML-doc на всех публичных контрактах ядра; комментарии — только намерения и доказательства (алиасинг, численная устойчивость), никогда — пересказ кода.
 - Исключения с контекстом; null не возвращается из публичных методов (Special Case вместо null).
 - Конфигурационные константы наверху (`Program`, `SweepConfig`), магические числа запрещены.
-- Форматирование едино: file-scoped namespaces, 4 пробела, using-блоки минимальны и отсортированы.
+- Форматирование едино: file-scoped namespaces, 4 пробела, using-блоки отсортированы (System — первыми), UTF-8 с BOM; `///` только на объявлениях (раньше часть комментариев висела над `namespace` и ни к чему не относилась).
 
 ---
 
@@ -453,29 +497,56 @@ Heatmap 56×40 клеток в плоскости PC1×PC2: центр клет�
 ## 19. Карта файлов (итог)
 
 ```
-IrisNeuralNet.sln
+IrisNeuralNet.slnx
 ├── IrisNeuralNet/
-│   ├── MathCore/ SpanGuard.cs VectorOps.cs Activations.cs Pca2D.cs
-│   ├── Core/ ActivationKind.cs ActivationFunction.cs ReLUActivation.cs
-│   │         SoftmaxActivation.cs ActivationFactory.cs DenseLayer.cs
-│   │         NeuralNetwork.cs NetworkFactory.cs Buffers.cs Metrics.cs
-│   │         Trainer.cs Shuffler.cs ILossFunction.cs
-│   │         CategoricalCrossEntropyLoss.cs ModelFile.cs LoadedModel.cs
-│   ├── Optimizers/ IOptimizer.cs OptimizerState.cs SgdOptimizer.cs
-│   │               SgdMomentumOptimizer.cs AdamOptimizer.cs
-│   ├── Data/ IrisDataset.cs IrisDataLoader.cs OneHotEncoder.cs
-│   │         FeatureNormalizer.cs DatasetSplitter.cs
-│   └── Diagnostics/ EpochMetrics.cs ITrainingObserver.cs
-│                    NullTrainingObserver.cs MetricsRing.cs
-├── IrisNeuralNet.Lab/ Program.cs ConsoleTrainingObserver.cs AsciiChart.cs
-│                      TrainingSession.cs UiTheme.cs ChartBox.cs ChartPainter.cs
-│                      LabForm.cs TopologyView.cs NetworkProbe.cs
-│                      DecisionBoundaryView.cs SweepRunner.cs SweepHeatmapView.cs
-│                      SweepPanel.cs iris.csv
-├── IrisNeuralNet.Tests/ 15 тестовых классов, 65 тестов, LayerFactory.cs TestDatasets.cs
-└── IrisNeuralNet.Benchmarks/ Program.cs MathBenchmarks.cs TrainingBenchmarks.cs
+│   ├── MathCore/    SpanGuard VectorOps ParallelKernels Activations Pca2D
+│   ├── Core/        ActivationKind ActivationFunction ReLU/Softmax/Sigmoid/LinearActivation ActivationFactory
+│   │                DenseLayer NeuralNetwork NetworkFactory Buffers Shuffler
+│   │                TrainingTask MultiClassTask BinaryTask RegressionTask Metric Metrics
+│   │                ILossFunction CategoricalCrossEntropyLoss BinaryCrossEntropyLoss MeanSquaredErrorLoss
+│   │                Trainer TrainingOptions Evaluation ModelFile LoadedModel
+│   ├── Optimizers/  IOptimizer OptimizerBase OptimizerState SgdOptimizer SgdMomentumOptimizer
+│   │                RmsPropOptimizer AdamOptimizer OptimizerKind OptimizerFactory
+│   ├── Data/        Dataset DatasetSplitter KFold CsvDatasetLoader IrisDataLoader SonarDataLoader
+│   │                BostonHousingDataLoader MnistDataLoader OneHotEncoder FeatureNormalizer DigitImagePreprocessor
+│   └── Diagnostics/ EpochMetrics ITrainingObserver NullTrainingObserver CompositeTrainingObserver
+│                    MetricsRing TrainingHistory ModelSummary
+├── IrisNeuralNet.Lab/
+│   ├── Experiments/ DatasetSpec Datasets DataPreparation Experiment ArchitectureParser FeatureScaling DataFiles MnistDownloader
+│   ├── Scenarios/   ILabScenario LabConsole ScenarioContext ExperimentRunner ExperimentResult ExperimentAnalysis
+│   │                CrossValidation ModelCheckpoint IrisScenario SonarScenario BostonScenario MnistScenario
+│   ├── Reporting/   IChartRenderer NullChartRenderer PlotSeries TextTable MetricFormat ConsoleProgress AsciiChart RussianPlural
+│   ├── Program LabForm ControlPanel RunHistory TrainingSession UiTheme ChartBox ChartPainter PngChartRenderer BitmapPixels
+│   ├── TopologyView NetworkProbe DecisionBoundaryView SweepRunner SweepPanel SweepHeatmapView DigitPanel
+│   └── iris.csv sonar.csv boston.csv
+├── IrisNeuralNet.Tests/       23 тестовых класса, 129 тестов, LayerFactory TestDatasets
+├── IrisNeuralNet.Benchmarks/  Program MathBenchmarks TrainingBenchmarks DenseLayerBenchmarks
+├── reports/                   результаты лабораторных: results.md + PNG по каждой лабе (генерирует CI)
+└── .github/workflows/ci.yml   сборка, тесты, быстрый прогон сценариев; полный прогон лаб по [labs]
 ```
 
 ---
 
-*Конец README.
+## 20. Рефакторинг (октябрь 2026): что найдено и что изменено
+
+**Баги**
+- `sonar.csv` не копировался в bin (в csproj был только iris.csv) — Sonar из Visual Studio сообщал «нет файла». Теперь копируются все csv.
+- Границы решений для Sonar были одноцветными: argmax по единственному выходу sigmoid всегда 0. Решение теперь принимает `ClassificationTask.PredictClass` (p ≥ 0.5).
+- `TrainingSession.Stop()` ждал 2 с, а отмена проверялась раз в эпоху: на больших данных старый прогон продолжал писать в кольцо метрик нового. Теперь отмена перед каждым батчем и полное ожидание.
+- BCE с floor 1e-8: `1 − 1e-8 == 1f` во float → ln(0) = −∞ и NaN в градиенте при уверенной ошибке. Floor 1e-7.
+
+**Производительность и память**
+- Оценка эпохи шла одним Forward по всей выборке → кусками по 1024 строки через `Infer` (без кэшей обучения).
+- Первый слой больше не считает ненужный dX; три матричных произведения распараллелены выше 2²² умножений (детерминированно).
+
+**Архитектура и DRY**
+- `TaskKind` + `switch`, скопированный в `TrainingSession` и `SweepRunner` → стратегия `TrainingTask`; регрессия добавилась одним классом.
+- `IrisDataset` (хранил и Sonar) → `Dataset` с одной меткой на строку; работает и для классификации, и для регрессии.
+- Копии проверки владельца и LearningRate в оптимизаторах → `OptimizerBase`; `IOptimizer.LearningRate` позволил live-слайдеру работать с любым оптимизатором.
+- `LabForm` (488 строк: раскладка, состояние, события, отрисовка) → `ControlPanel` + `RunHistory` + тонкая форма; 8 параллельных списков истории → `RunSeries`.
+- Сборка «сеть + оптимизатор + тренер» была в двух местах → `Experiment` (UI, sweep, сценарии).
+- Дубли: формула сигмоиды (2 копии), `BuildArchitecture`/`BuildHidden`, два `Concat`, тернарник `x ? a : a` в `PaintAccuracy`.
+- Шкала цвета sweep была прибита к 3 классам (0.34) → строится по фактическому диапазону с учётом направления метрики.
+- Папка `IrisNeuralNet.Benchmarks1` → `IrisNeuralNet.Benchmarks`.
+
+*Конец README.*
