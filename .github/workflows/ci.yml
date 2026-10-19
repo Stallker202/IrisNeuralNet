@@ -41,6 +41,7 @@ jobs:
     name: package (${{ matrix.rid }})
     needs: build-test
     strategy:
+      fail-fast: false
       matrix:
         include:
           - { rid: win-x64, os: ubuntu-latest, archive: zip }
