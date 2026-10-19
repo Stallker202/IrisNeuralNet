@@ -30,4 +30,8 @@ public static class DatasetSplitter
         int[] order = Shuffler.Permutation(rowCount, seed);
         return (dataset.Select(order.AsSpan(0, trainCount)), dataset.Select(order.AsSpan(trainCount)));
     }
+
+    /// <summary>Перемешанная копия датасета (например, перед K-Fold по отсортированному файлу).</summary>
+    public static Dataset Shuffle(Dataset dataset, int seed) =>
+        dataset.Select(Shuffler.Permutation(dataset.RowCount, seed));
 }

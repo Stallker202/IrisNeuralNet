@@ -21,6 +21,14 @@ internal static class UiTheme
     public static readonly Color PreviousRun = Color.FromArgb(110, 116, 130);
     public static readonly Color PreviousRunDim = Color.FromArgb(86, 91, 103);
 
+    /// <summary>Цвета классов: границы решений, точки датасета, столбики вероятностей.</summary>
+    public static readonly Color[] ClassColors =
+    {
+        AccentBlue, AccentGreen, AccentOrange, AccentGold, AccentRed,
+        Color.FromArgb(177, 132, 230), Color.FromArgb(94, 205, 205), Color.FromArgb(240, 128, 190),
+        Color.FromArgb(160, 170, 90), Color.FromArgb(200, 160, 120),
+    };
+
     public static readonly Font UiFont = new Font("Segoe UI", 9f);
     public static readonly Font MonoFont = new Font("Consolas", 9f);
     public static readonly Font TitleFont = new Font("Segoe UI", 9.5f, FontStyle.Bold);

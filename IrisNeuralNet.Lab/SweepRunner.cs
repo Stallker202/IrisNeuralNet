@@ -1,132 +1,77 @@
-﻿using IrisNeuralNet.Core;
-using IrisNeuralNet.Diagnostics;
-using IrisNeuralNet.Optimizers;
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using IrisNeuralNet.Core;
+using IrisNeuralNet.Lab.Experiments;
 
-namespace IrisNeuralNet.Lab
+namespace IrisNeuralNet.Lab;
+
+/// <summary>Сетка sweep: варианты числа скрытых слоёв и нейронов в каждом.</summary>
+internal sealed record SweepGrid(int[] LayerOptions, int[] NeuronOptions)
 {
-    internal sealed class SweepConfig
+    public int Count => LayerOptions.Length * NeuronOptions.Length;
+}
+
+internal readonly record struct SweepResult(
+    int HiddenLayers,
+    int Neurons,
+    float TrainMetric,
+    float ValidationMetric,
+    float ValidationLoss,
+    long ElapsedMs);
+
+/// <summary>Пакетное сравнение архитектур «слои × нейроны»; каждый прогон независим и детерминирован.</summary>
+internal sealed class SweepRunner
+{
+    private readonly PreparedData _data;
+
+    public SweepRunner(PreparedData data) => _data = data ?? throw new ArgumentNullException(nameof(data));
+
+    public Metric Metric => _data.Task.Metric;
+
+    /// <param name="template">Оптимизатор, learning rate, batch и эпохи берутся отсюда; архитектура и seed — из сетки.</param>
+    public List<SweepResult> Run(SweepGrid grid, ExperimentConfig template, IProgress<SweepResult>? progress = null, CancellationToken token = default)
     {
-        public int[] NeuronOptions { get; init; } = { 2, 4, 8, 16, 32 };
-        public int[] LayerOptions { get; init; } = { 0, 1, 2 };
-        public int Epochs { get; init; } = 150;
-        public int BatchSize { get; init; } = 16;
-        public int BaseSeed { get; init; } = 100;
-        public float LearningRate { get; init; } = 0.02f;
-    }
+        if (grid is null) throw new ArgumentNullException(nameof(grid));
+        if (template is null) throw new ArgumentNullException(nameof(template));
 
-    internal readonly struct SweepResult
-    {
-        public SweepResult(
-            int hiddenLayers, int neurons,
-            float trainAccuracy, float validationAccuracy, float finalLoss, long elapsedMs)
+        var cells = new List<(int Layers, int Neurons, int Index)>();
+        foreach (int layers in grid.LayerOptions)
         {
-            HiddenLayers = hiddenLayers;
-            Neurons = neurons;
-            TrainAccuracy = trainAccuracy;
-            ValidationAccuracy = validationAccuracy;
-            FinalLoss = finalLoss;
-            ElapsedMs = elapsedMs;
-        }
-
-        public int HiddenLayers { get; }
-        public int Neurons { get; }
-        public float TrainAccuracy { get; }
-        public float ValidationAccuracy { get; }
-        public float FinalLoss { get; }
-        public long ElapsedMs { get; }
-    }
-
-    /// <summary>Пакетное сравнение архитектур; каждый прогон независим и детерминирован.</summary>
-    internal sealed class SweepRunner
-    {
-        private readonly float[] _trainFeatures;
-        private readonly float[] _trainLabels;
-        private readonly float[] _validationFeatures;
-        private readonly float[] _validationLabels;
-        private readonly int _inputDim;
-        private readonly int _classCount;
-        private readonly TaskKind _taskKind;
-
-        public SweepRunner(PreparedData data)
-        {
-            if (data is null) throw new ArgumentNullException(nameof(data));
-            _trainFeatures = data.TrainFeatures;
-            _trainLabels = data.TrainLabels;
-            _validationFeatures = data.ValidationFeatures;
-            _validationLabels = data.ValidationLabels;
-            _inputDim = data.FeatureCount;
-            _classCount = data.ClassCount;
-            _taskKind = data.TaskKind;
-        }
-
-        public List<SweepResult> Run(SweepConfig config, IProgress<SweepResult>? progress = null, CancellationToken token = default)
-        {
-            if (config is null) throw new ArgumentNullException(nameof(config));
-
-            var pairs = new List<(int Layers, int Neurons, int Index)>();
-            int index = 0;
-            foreach (int layers in config.LayerOptions)
+            foreach (int neurons in grid.NeuronOptions)
             {
-                foreach (int neurons in config.NeuronOptions)
-                {
-                    pairs.Add((layers, neurons, index));
-                    index++;
-                }
+                cells.Add((layers, neurons, cells.Count));
             }
-
-            var bag = new ConcurrentBag<SweepResult>();
-            Parallel.ForEach(pairs, new ParallelOptions { CancellationToken = token }, pair =>
-            {
-                var stopwatch = Stopwatch.StartNew();
-                int seed = config.BaseSeed + pair.Index;
-                int[] hidden = BuildHidden(pair.Layers, pair.Neurons);
-
-                NeuralNetwork network = _taskKind == TaskKind.Binary
-                    ? NetworkFactory.Create(_inputDim, hidden, 1, new SigmoidActivation(), seed)
-                    : NetworkFactory.Create(_inputDim, hidden, _classCount, seed);
-
-                ILossFunction loss = _taskKind == TaskKind.Binary
-                    ? new BinaryCrossEntropyLoss()
-                    : new CategoricalCrossEntropyLoss();
-
-                var optimizer = new AdamOptimizer(network, config.LearningRate);
-                var trainer = new Trainer(network, optimizer, loss, NullTrainingObserver.Instance, _taskKind);
-
-                float lossValue = trainer.Fit(
-                    _trainFeatures, _trainLabels,
-                    _validationFeatures, _validationLabels,
-                    config.Epochs, config.BatchSize, seed, token);
-                stopwatch.Stop();
-
-                var result = new SweepResult(
-                    pair.Layers, pair.Neurons,
-                    trainer.EvaluateAccuracy(_trainFeatures, _trainLabels),
-                    trainer.EvaluateAccuracy(_validationFeatures, _validationLabels),
-                    lossValue,
-                    stopwatch.ElapsedMilliseconds);
-                bag.Add(result);
-                progress?.Report(result);
-            });
-
-            return bag.OrderBy(r => r.HiddenLayers).ThenBy(r => r.Neurons).ToList();
         }
 
-        private static int[] BuildHidden(int layers, int neurons)
+        var results = new ConcurrentBag<SweepResult>();
+        Parallel.ForEach(cells, new ParallelOptions { CancellationToken = token }, cell =>
         {
-            var hidden = new int[layers];
-            for (int i = 0; i < layers; i++)
+            var stopwatch = Stopwatch.StartNew();
+            ExperimentConfig config = template with
             {
-                hidden[i] = neurons;
-            }
+                Name = $"{cell.Layers}x{cell.Neurons}",
+                Hidden = ArchitectureParser.Uniform(cell.Layers, cell.Neurons),
+                Seed = template.Seed + cell.Index,
+            };
+            Experiment experiment = Experiment.Create(_data, config);
+            experiment.Run(token);
+            Evaluation validation = experiment.EvaluateValidation();
 
-            return hidden;
-        }
+            var result = new SweepResult(
+                cell.Layers, cell.Neurons, experiment.EvaluateTrain().Metric, validation.Metric, validation.Loss, stopwatch.ElapsedMilliseconds);
+            results.Add(result);
+            progress?.Report(result);
+        });
+
+        return results.OrderBy(r => r.HiddenLayers).ThenBy(r => r.Neurons).ToList();
     }
+
+    /// <summary>Лучший результат с учётом направления метрики (accuracy — больше, MAE — меньше).</summary>
+    public static SweepResult Best(IEnumerable<SweepResult> results, Metric metric) =>
+        results.Aggregate((best, next) => metric.IsBetter(next.ValidationMetric, best.ValidationMetric) ? next : best);
 }

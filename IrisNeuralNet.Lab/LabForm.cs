@@ -1,489 +1,251 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using IrisNeuralNet.Core;
 using IrisNeuralNet.Diagnostics;
-using IrisNeuralNet.MathCore;
+using IrisNeuralNet.Lab.Experiments;
+using IrisNeuralNet.Lab.Reporting;
 
-namespace IrisNeuralNet.Lab
+namespace IrisNeuralNet.Lab;
+
+/// <summary>
+/// Главное окно лаборатории: композиция панели управления, графиков, видов сети и вкладок.
+/// Само окно только связывает части: подготовка данных — DataPreparation, обучение — TrainingSession,
+/// история графиков — RunHistory, контролы — ControlPanel.
+/// </summary>
+internal sealed class LabForm : Form
 {
+    private readonly RunHistory _history = new();
+    private readonly Label _status = new();
+    private readonly ControlPanel _controls = new();
+    private readonly ChartBox _lossChart = new();
+    private readonly ChartBox _metricChart = new();
+    private readonly TopologyView _topology = new();
+    private readonly DecisionBoundaryView _boundary = new();
+    private readonly DigitPanel _digits = new();
+    private readonly TabControl _tabs = new();
+    private readonly TabPage _trainingPage = CreatePage("Обучение");
+    private readonly TabPage _structurePage = CreatePage("Сеть и границы");
+    private readonly TabPage _sweepPage = CreatePage("Sweep");
+    private readonly TabPage _digitsPage = CreatePage("Цифры (MNIST)");
+    private readonly Timer _timer = new();
 
-    internal sealed class LabForm : Form
+    private TrainingSession? _session;
+    private SweepPanel? _sweepPanel;
+    private float[] _probeSample = Array.Empty<float>();
+    private int _rebuildVersion;
+
+    public LabForm()
     {
-        private readonly List<EpochMetrics> _ringSnapshot = new();
-        private readonly List<float> _trainLoss = new();
-        private readonly List<float> _valLoss = new();
-        private readonly List<float> _trainAcc = new();
-        private readonly List<float> _valAcc = new();
-        private readonly List<float> _prevTrainLoss = new();
-        private readonly List<float> _prevValLoss = new();
-        private readonly List<float> _prevTrainAcc = new();
-        private readonly List<float> _prevValAcc = new();
+        Text = "Iris Neural Lab";
+        ClientSize = new Size(1180, 760);
+        MinimumSize = new Size(960, 620);
+        StartPosition = FormStartPosition.CenterScreen;
+        BackColor = UiTheme.Background;
+        Font = UiTheme.UiFont;
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
 
-        private readonly Label _status = new();
-        private readonly ComboBox _dataset = new();
-        private readonly CheckBox _normalize = new();
-        private readonly NumericUpDown _valFraction = new();
-        private readonly CheckBox _earlyStop = new();
-        private readonly NumericUpDown _patience = new();
-        private readonly Label _lrLabel = new();
-        private readonly Label _hint = new();
-        private readonly TrackBar _lrSlider = new();
-        private readonly NumericUpDown _neurons = new();
-        private readonly NumericUpDown _hiddenLayers = new();
-        private readonly NumericUpDown _epochs = new();
-        private readonly NumericUpDown _batch = new();
-        private readonly CheckBox _overlay = new();
-        private readonly Button _start = new();
-        private readonly Button _stop = new();
-        private readonly ChartBox _lossChart = new();
-        private readonly ChartBox _accChart = new();
-        private readonly TopologyView _topology = new();
-        private readonly DecisionBoundaryView _boundary = new();
-        private readonly Timer _timer = new();
+        BuildLayout();
+        WireEvents();
 
-        private readonly TabPage _sweepPage = new() { BackColor = UiTheme.Background, UseVisualStyleBackColor = false };
-        private SweepPanel? _sweepPanel;
-        private TrainingSession? _session;
-        private PreparedData? _data;
-        private float[] _probeSample = Array.Empty<float>();
-        private int _consumedEpochs;
-        private bool _architectureDirty;
-        private bool _suppressRebuild;
+        _controls.SelectDataset(0);
+        _timer.Interval = 50;
+        _timer.Start();
+    }
 
-        public LabForm()
+    private TrainingTask? CurrentTask => _session?.Data.Task;
+
+    private void BuildLayout()
+    {
+        _status.Dock = DockStyle.Top;
+        _status.Height = 44;
+        _status.ForeColor = UiTheme.AccentGreen;
+        _status.BackColor = UiTheme.PanelBackground;
+        _status.Font = UiTheme.MonoFont;
+        _status.TextAlign = ContentAlignment.MiddleLeft;
+        _status.Padding = new Padding(10, 0, 0, 0);
+
+        _controls.Dock = DockStyle.Left;
+        _controls.Width = 290;
+
+        var charts = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(8, 6, 8, 8), BackColor = UiTheme.Background };
+        charts.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+        charts.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+        _lossChart.Dock = DockStyle.Fill;
+        _lossChart.Margin = new Padding(0, 0, 0, 4);
+        _metricChart.Dock = DockStyle.Fill;
+        _metricChart.Margin = new Padding(0, 4, 0, 0);
+        charts.Controls.Add(_lossChart, 0, 0);
+        charts.Controls.Add(_metricChart, 0, 1);
+        _trainingPage.Controls.Add(charts);
+
+        var structure = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(8), BackColor = UiTheme.Background };
+        structure.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        structure.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        _topology.Dock = DockStyle.Fill;
+        _topology.Margin = new Padding(0, 0, 4, 0);
+        _boundary.Dock = DockStyle.Fill;
+        _boundary.Margin = new Padding(4, 0, 0, 0);
+        structure.Controls.Add(_topology, 0, 0);
+        structure.Controls.Add(_boundary, 1, 0);
+        _structurePage.Controls.Add(structure);
+
+        _digitsPage.Controls.Add(_digits);
+
+        _tabs.Dock = DockStyle.Fill;
+        _tabs.TabPages.AddRange(new[] { _trainingPage, _structurePage, _sweepPage, _digitsPage });
+
+        Controls.Add(_tabs);
+        Controls.Add(_controls);
+        Controls.Add(_status);
+    }
+
+    private void WireEvents()
+    {
+        _controls.DatasetChanged += async (_, _) => await RebuildAsync();
+        _controls.DataOptionsChanged += async (_, _) => await RebuildAsync();
+        _controls.LearningRateChanged += (_, _) =>
         {
-            Text = "Iris Neural Lab";
-            ClientSize = new Size(1120, 720);
-            MinimumSize = new Size(900, 580);
-            StartPosition = FormStartPosition.CenterScreen;
-            BackColor = UiTheme.Background;
-            Font = UiTheme.UiFont;
-            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
-
-            BuildLayout();
-            WireEvents();
-
-            _dataset.SelectedIndex = 0;
-            _lrSlider.Value = 767;
-            ApplyLearningRateFromSlider();
-            _timer.Interval = 33;
-            _timer.Start();
-        }
-
-        private DatasetSpec CurrentSpec =>
-            _dataset.SelectedIndex >= 0 ? Datasets.All[_dataset.SelectedIndex] : Datasets.All[0];
-
-        private void BuildLayout()
+            if (_session is not null) _session.LearningRate = _controls.LearningRate;
+        };
+        _controls.StartRequested += (_, _) => OnStart();
+        _controls.StopRequested += (_, _) => _session?.Stop();
+        _lossChart.Paint += (_, e) => PaintChart(e.Graphics, _lossChart.ClientRectangle, "Loss", isLoss: true);
+        _metricChart.Paint += (_, e) => PaintChart(e.Graphics, _metricChart.ClientRectangle, MetricTitle(), isLoss: false);
+        _timer.Tick += (_, _) => Poll();
+        FormClosed += (_, _) =>
         {
-            _status.Dock = DockStyle.Top;
-            _status.Height = 44;
-            _status.ForeColor = UiTheme.AccentGreen;
-            _status.BackColor = UiTheme.PanelBackground;
-            _status.Font = UiTheme.MonoFont;
-            _status.TextAlign = ContentAlignment.MiddleLeft;
-            _status.Padding = new Padding(10, 0, 0, 0);
-
-            var left = new TableLayoutPanel
-            {
-                Dock = DockStyle.Left,
-                Width = 272,
-                ColumnCount = 1,
-                Padding = new Padding(10),
-                BackColor = UiTheme.PanelBackground,
-            };
-
-            _dataset.DropDownStyle = ComboBoxStyle.DropDownList;
-            _dataset.Dock = DockStyle.Fill;
-            _dataset.BackColor = UiTheme.Background;
-            _dataset.ForeColor = UiTheme.TextPrimary;
-            foreach (DatasetSpec spec in Datasets.All)
-            {
-                _dataset.Items.Add(spec.Name);
-            }
-
-            _normalize.Text = "нормализация (z-score)";
-            _normalize.ForeColor = UiTheme.TextMuted;
-            _normalize.AutoSize = true;
-            _normalize.Margin = new Padding(2, 8, 2, 2);
-
-            _valFraction.Minimum = 0.05m;
-            _valFraction.Maximum = 0.5m;
-            _valFraction.Increment = 0.05m;
-            _valFraction.DecimalPlaces = 2;
-            StyleNumericBox(_valFraction);
-
-            _earlyStop.Text = "early stopping";
-            _earlyStop.ForeColor = UiTheme.TextMuted;
-            _earlyStop.AutoSize = true;
-            _earlyStop.Margin = new Padding(2, 8, 2, 2);
-
-            _patience.Minimum = 5;
-            _patience.Maximum = 200;
-            _patience.Value = 20;
-            _patience.Increment = 5;
-            StyleNumericBox(_patience);
-
-            _lrLabel.ForeColor = UiTheme.TextPrimary;
-            _lrLabel.AutoSize = true;
-            _lrLabel.Margin = new Padding(2, 4, 2, 2);
-
-            _lrSlider.Dock = DockStyle.Fill;
-            _lrSlider.Minimum = 0;
-            _lrSlider.Maximum = 1000;
-            _lrSlider.TickFrequency = 100;
-            _lrSlider.BackColor = UiTheme.PanelBackground;
-            _lrSlider.Margin = new Padding(2, 6, 2, 10);
-
-            StyleNumericBox(_neurons); _neurons.Minimum = 1; _neurons.Maximum = 128; _neurons.Value = 8;
-            StyleNumericBox(_hiddenLayers); _hiddenLayers.Minimum = 0; _hiddenLayers.Maximum = 3; _hiddenLayers.Value = 1;
-            StyleNumericBox(_epochs); _epochs.Minimum = 10; _epochs.Maximum = 2000; _epochs.Value = 200; _epochs.Increment = 10;
-            StyleNumericBox(_batch); _batch.Minimum = 1; _batch.Maximum = 208; _batch.Value = 16;
-
-            _overlay.Text = "оверлей прошлого прогона";
-            _overlay.Checked = true;
-            _overlay.ForeColor = UiTheme.TextMuted;
-            _overlay.Margin = new Padding(2, 10, 2, 6);
-
-            StyleButton(_start, "Start / Restart", UiTheme.AccentGreen);
-            StyleButton(_stop, "Stop", UiTheme.AccentRed);
-
-            _hint.ForeColor = UiTheme.AccentOrange;
-            _hint.AutoSize = true;
-            _hint.Margin = new Padding(2, 8, 2, 2);
-
-            AddRow(left, SectionLabel("датасет"));
-            AddRow(left, _dataset);
-            AddRow(left, _normalize);
-            AddRow(left, SectionLabel("validation split"));
-            AddRow(left, _valFraction);
-            AddRow(left, _earlyStop);
-            AddRow(left, _patience);
-            AddRow(left, _lrLabel);
-            AddRow(left, _lrSlider);
-            AddRow(left, SectionLabel("нейронов в скрытом слое"));
-            AddRow(left, _neurons);
-            AddRow(left, SectionLabel("скрытых слоёв"));
-            AddRow(left, _hiddenLayers);
-            AddRow(left, SectionLabel("эпох"));
-            AddRow(left, _epochs);
-            AddRow(left, SectionLabel("batch size"));
-            AddRow(left, _batch);
-            AddRow(left, _overlay);
-            AddRow(left, _start);
-            AddRow(left, _stop);
-            AddRow(left, _hint);
-            left.RowCount++;
-            left.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-
-            var charts = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 2,
-                Padding = new Padding(8, 6, 8, 8),
-                BackColor = UiTheme.Background,
-            };
-            charts.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
-            charts.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
-            _lossChart.Dock = DockStyle.Fill;
-            _lossChart.Margin = new Padding(0, 0, 0, 4);
-            _accChart.Dock = DockStyle.Fill;
-            _accChart.Margin = new Padding(0, 4, 0, 0);
-            charts.Controls.Add(_lossChart, 0, 0);
-            charts.Controls.Add(_accChart, 0, 1);
-
-            var split = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                RowCount = 1,
-                Padding = new Padding(8),
-                BackColor = UiTheme.Background,
-            };
-            split.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
-            split.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
-            _topology.Dock = DockStyle.Fill;
-            _topology.Margin = new Padding(0, 0, 4, 0);
-            _boundary.Dock = DockStyle.Fill;
-            _boundary.Margin = new Padding(4, 0, 0, 0);
-            split.Controls.Add(_topology, 0, 0);
-            split.Controls.Add(_boundary, 1, 0);
-
-            var trainingPage = new TabPage("Обучение") { BackColor = UiTheme.Background, UseVisualStyleBackColor = false };
-            var structurePage = new TabPage("Сеть и границы") { BackColor = UiTheme.Background, UseVisualStyleBackColor = false };
-            trainingPage.Controls.Add(charts);
-            structurePage.Controls.Add(split);
-
-            var tabs = new TabControl { Dock = DockStyle.Fill };
-            tabs.TabPages.Add(trainingPage);
-            tabs.TabPages.Add(structurePage);
-            tabs.TabPages.Add(_sweepPage);
-            _sweepPage.Text = "Sweep";
-
-            Controls.Add(tabs);
-            Controls.Add(left);
-            Controls.Add(_status);
-        }
-
-        private static void StyleNumericBox(NumericUpDown control)
-        {
-            control.Dock = DockStyle.Fill;
-            control.Margin = new Padding(2, 2, 2, 6);
-            control.BackColor = UiTheme.Background;
-            control.ForeColor = UiTheme.TextPrimary;
-            control.BorderStyle = BorderStyle.FixedSingle;
-        }
-
-        private static Label SectionLabel(string text) =>
-            new Label
-            {
-                Text = text,
-                ForeColor = UiTheme.TextMuted,
-                AutoSize = true,
-                Margin = new Padding(2, 8, 2, 2),
-            };
-
-        private static void StyleButton(Button button, string text, Color accent)
-        {
-            button.Text = text;
-            button.FlatStyle = FlatStyle.Flat;
-            button.ForeColor = accent;
-            button.BackColor = UiTheme.Background;
-            button.FlatAppearance.BorderColor = accent;
-            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(48, 52, 60);
-            button.Font = UiTheme.TitleFont;
-            button.Height = 34;
-            button.Dock = DockStyle.Fill;
-            button.Margin = new Padding(2, 6, 2, 2);
-        }
-
-        private static void AddRow(TableLayoutPanel panel, Control control)
-        {
-            panel.RowCount++;
-            panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            panel.Controls.Add(control, 0, panel.RowCount - 1);
-        }
-
-        private void WireEvents()
-        {
-            _dataset.SelectedIndexChanged += (_, _) => SelectDataset(CurrentSpec);
-            _normalize.CheckedChanged += (_, _) => RebuildIfAllowed();
-            _valFraction.ValueChanged += (_, _) => RebuildIfAllowed();
-            _earlyStop.CheckedChanged += (_, _) => _patience.Enabled = _earlyStop.Checked;
-            _lrSlider.Scroll += (_, _) => ApplyLearningRateFromSlider();
-            _neurons.ValueChanged += (_, _) => MarkArchitectureDirty();
-            _hiddenLayers.ValueChanged += (_, _) => MarkArchitectureDirty();
-            _start.Click += (_, _) => OnStart();
-            _stop.Click += (_, _) => _session?.Stop();
-            _lossChart.Paint += (_, e) => PaintLoss(e.Graphics, _lossChart.ClientRectangle);
-            _accChart.Paint += (_, e) => PaintAccuracy(e.Graphics, _accChart.ClientRectangle);
-            _timer.Tick += (_, _) => Poll();
-            FormClosed += (_, _) =>
-            {
-                _timer.Stop();
-                _session?.Stop();
-            };
-        }
-
-        private void SelectDataset(DatasetSpec spec)
-        {
-            _suppressRebuild = true;
-            _normalize.Checked = spec.DefaultNormalize;
-            _valFraction.Value = (decimal)spec.DefaultValidationFraction;
-            _neurons.Value = Math.Clamp(spec.DefaultHidden[0], (int)_neurons.Minimum, (int)_neurons.Maximum);
-            _hiddenLayers.Value = Math.Clamp(spec.DefaultHidden.Length, (int)_hiddenLayers.Minimum, (int)_hiddenLayers.Maximum);
-            _patience.Enabled = _earlyStop.Checked;
-            _suppressRebuild = false;
-            Rebuild();
-        }
-
-        private void RebuildIfAllowed()
-        {
-            if (!_suppressRebuild)
-            {
-                Rebuild();
-            }
-        }
-
-        private void Rebuild()
-        {
-            DatasetSpec spec = CurrentSpec;
-            if (!File.Exists(spec.FileName))
-            {
-                _status.Text = $"нет файла '{spec.FileName}' — положи его в папку Lab";
-                return;
-            }
-
-            _data = DataPreparation.Prepare(spec, (float)_valFraction.Value, _normalize.Checked);
+            _timer.Stop();
             _session?.Dispose();
-            _session = new TrainingSession(_data);
+        };
+    }
 
-            float[] allFeatures = Concat(_data.TrainFeatures, _data.ValidationFeatures);
-            int[] allClasses = Concat(_data.TrainClasses, _data.ValidationClasses);
-            Pca2D pca = Pca2D.Fit(allFeatures, _data.FeatureCount);
-            _boundary.SetData(pca, allFeatures, allClasses, _data.FeatureCount, _data.ClassCount);
+    /// <summary>
+    /// Готовит данные выбранного датасета в фоне (MNIST — секунды). Номер версии отбрасывает
+    /// устаревшие результаты, если пользователь успел переключить датасет.
+    /// </summary>
+    private async Task RebuildAsync()
+    {
+        int version = ++_rebuildVersion;
+        DatasetSpec spec = _controls.SelectedSpec;
+        FeatureScaling scaling = _controls.Scaling;
+        float validationFraction = _controls.ValidationFraction;
 
-            _probeSample = new float[_data.FeatureCount];
-            Array.Copy(_data.ValidationFeatures, _probeSample, _data.FeatureCount);
+        _session?.Dispose();
+        _session = null;
+        _history.Reset();
 
-            _sweepPanel = new SweepPanel(_data) { Dock = DockStyle.Fill };
-            _sweepPage.Controls.Clear();
-            _sweepPage.Controls.Add(_sweepPanel);
-
-            _trainLoss.Clear(); _valLoss.Clear(); _trainAcc.Clear(); _valAcc.Clear();
-            _prevTrainLoss.Clear(); _prevValLoss.Clear(); _prevTrainAcc.Clear(); _prevValAcc.Clear();
-            _consumedEpochs = 0;
-            _architectureDirty = false;
-            UpdateHint();
-
-            _status.Text = $"{spec.Name}: {_data.TrainRowCount} train / {_data.ValidationRowCount} val | " +
-                           $"задача: {(spec.TaskKind == TaskKind.Binary ? "бинарная (sigmoid+BCE)" : "multi-class (softmax+CE)")}";
-        }
-
-        private static float[] Concat(float[] a, float[] b)
+        try
         {
-            var result = new float[a.Length + b.Length];
-            a.CopyTo(result, 0);
-            b.CopyTo(result, a.Length);
-            return result;
-        }
-
-        private static int[] Concat(int[] a, int[] b)
-        {
-            var result = new int[a.Length + b.Length];
-            a.CopyTo(result, 0);
-            b.CopyTo(result, a.Length);
-            return result;
-        }
-
-        private void ApplyLearningRateFromSlider()
-        {
-            if (_session is not null)
+            if (!spec.IsAvailable())
             {
-                _session.LearningRate = SliderToLearningRate(_lrSlider.Value);
-            }
-
-            _lrLabel.Text = $"learning rate: {SliderToLearningRate(_lrSlider.Value):F4} (live)";
-        }
-
-        private static float SliderToLearningRate(int value) =>
-            (float)(1e-4 * Math.Pow(10, value / 1000.0 * 3.0));
-
-        private void MarkArchitectureDirty()
-        {
-            _architectureDirty = true;
-            UpdateHint();
-        }
-
-        private void UpdateHint() =>
-            _hint.Text = _architectureDirty ? "архитектура изменена — жми Start/Restart" : string.Empty;
-
-        private int[] BuildArchitecture()
-        {
-            int layers = (int)_hiddenLayers.Value;
-            int neurons = (int)_neurons.Value;
-            var architecture = new int[layers];
-            for (int i = 0; i < layers; i++)
-            {
-                architecture[i] = neurons;
-            }
-
-            return architecture;
-        }
-
-        private void OnStart()
-        {
-            if (_session is null)
-            {
-                return;
-            }
-
-            if (_overlay.Checked && _trainLoss.Count > 1)
-            {
-                CopyList(_trainLoss, _prevTrainLoss);
-                CopyList(_valLoss, _prevValLoss);
-                CopyList(_trainAcc, _prevTrainAcc);
-                CopyList(_valAcc, _prevValAcc);
-            }
-
-            _trainLoss.Clear(); _valLoss.Clear(); _trainAcc.Clear(); _valAcc.Clear();
-            _consumedEpochs = 0;
-            _architectureDirty = false;
-            UpdateHint();
-
-            int patience = _earlyStop.Checked ? (int)_patience.Value : 0;
-            _session.Start(BuildArchitecture(), (int)_epochs.Value, (int)_batch.Value, seed: 7, earlyStoppingPatience: patience);
-        }
-
-        private static void CopyList(List<float> from, List<float> to)
-        {
-            to.Clear();
-            to.AddRange(from);
-        }
-
-        private void Poll()
-        {
-            if (_session is null)
-            {
-                return;
-            }
-
-            _session.Ring.CopyTo(_ringSnapshot);
-            if (_ringSnapshot.Count > _consumedEpochs)
-            {
-                for (int i = _consumedEpochs; i < _ringSnapshot.Count; i++)
+                if (spec.DownloadAsync is null)
                 {
-                    EpochMetrics m = _ringSnapshot[i];
-                    _trainLoss.Add(m.TrainLoss);
-                    _valLoss.Add(m.ValidationLoss);
-                    _trainAcc.Add(m.TrainAccuracy);
-                    _valAcc.Add(m.ValidationAccuracy);
+                    _status.Text = spec.MissingHint;
+                    return;
                 }
 
-                _consumedEpochs = _ringSnapshot.Count;
+                _status.Text = spec.MissingHint;
+                var progress = new Progress<string>(message =>
+                {
+                    if (version == _rebuildVersion) _status.Text = message;
+                });
+                await spec.DownloadAsync(progress, default);
             }
 
-            EpochMetrics latest = _ringSnapshot.Count > 0 ? _ringSnapshot[_ringSnapshot.Count - 1] : default;
-            _status.Text = $"epoch {latest.Epoch} | lr {_session.LearningRate:F4} | train acc {latest.TrainAccuracy:P1} | " +
-                           $"val acc {latest.ValidationAccuracy:P1} | {(_session.IsRunning ? "обучение" : "простой")}";
+            _status.Text = $"{spec.Name}: загрузка и подготовка данных…";
+            PreparedData data = await Task.Run(() => DataPreparation.Prepare(spec, scaling, validationFraction));
+            if (version != _rebuildVersion) return;
 
-            _lossChart.Invalidate();
-            _accChart.Invalidate();
-            _topology.UpdateSource(_session.CurrentNetwork, _probeSample);
-            _topology.Invalidate();
-            _boundary.UpdateNetwork(_session.CurrentNetwork);
-            _boundary.Invalidate();
+            ApplyData(data);
         }
-
-        private void PaintLoss(Graphics g, Rectangle bounds)
+        catch (Exception e)
         {
-            var series = new List<ChartSeries>();
-            if (_overlay.Checked && _prevTrainLoss.Count > 1)
-            {
-                series.Add(new ChartSeries("train (prev)", UiTheme.PreviousRun, _prevTrainLoss));
-                series.Add(new ChartSeries("val (prev)", UiTheme.PreviousRunDim, _prevValLoss));
-            }
-
-            series.Add(new ChartSeries("train", UiTheme.AccentBlue, _trainLoss));
-            series.Add(new ChartSeries("val", UiTheme.AccentOrange, _valLoss));
-            ChartPainter.Draw(g, bounds, "Loss", series);
-        }
-
-        private void PaintAccuracy(Graphics g, Rectangle bounds)
-        {
-            var series = new List<ChartSeries>();
-            if (_overlay.Checked && _prevTrainAcc.Count > 1)
-            {
-                series.Add(new ChartSeries("train (prev)", UiTheme.PreviousRun, _prevTrainAcc));
-                series.Add(new ChartSeries("val (prev)", UiTheme.PreviousRunDim, _prevTrainAcc.Count > 1 ? _prevValAcc : _prevValAcc));
-            }
-
-            series.Add(new ChartSeries("train", UiTheme.AccentGreen, _trainAcc));
-            series.Add(new ChartSeries("val", UiTheme.AccentGold, _valAcc));
-            ChartPainter.Draw(g, bounds, "Accuracy", series);
+            // Обработчик async void: исключение не должно уйти наружу и уронить окно.
+            if (version == _rebuildVersion) _status.Text = $"{spec.Name}: ошибка подготовки данных — {e.Message}";
         }
     }
+
+    private void ApplyData(PreparedData data)
+    {
+        _session = new TrainingSession(data, _controls.LearningRate);
+        _probeSample = data.ValidationFeatures.AsSpan(0, data.FeatureCount).ToArray();
+        _boundary.SetData(data);
+        _digits.SetData(data);
+
+        _sweepPanel?.Dispose();
+        _sweepPanel = new SweepPanel(data, () => _controls.TryBuildConfig(out ExperimentConfig config) ? config : null);
+        _sweepPage.Controls.Clear();
+        _sweepPage.Controls.Add(_sweepPanel);
+
+        _status.Text = $"{data.Spec.Name}: {data.TrainRowCount} train / {data.ValidationRowCount} val, {data.FeatureCount} признаков | " +
+                       $"задача: {data.Task.Description} | признаки: {data.Scaling.DisplayName()} — жми Start";
+        InvalidateViews();
+    }
+
+    private void OnStart()
+    {
+        if (_session is null || !_controls.TryBuildConfig(out ExperimentConfig config)) return;
+
+        _history.StartNewRun(keepPrevious: _controls.OverlayPrevious);
+        _session.LearningRate = _controls.LearningRate;
+        _session.Start(config);
+    }
+
+    private void Poll()
+    {
+        TrainingSession? session = _session;
+        if (session is null) return;
+
+        _history.Consume(session.Ring);
+        EpochMetrics latest = _history.Latest;
+        Metric metric = session.Data.Task.Metric;
+        string state = session.LastError is { } error ? $"ошибка: {error.Message}" : session.IsRunning ? "обучение" : "простой";
+        _status.Text = $"epoch {latest.Epoch} | lr {session.LearningRate:0.0000} | train {metric.Name} {MetricFormat.Value(metric, latest.TrainMetric)} | " +
+                       $"val {metric.Name} {MetricFormat.Value(metric, latest.ValidationMetric)} | val_loss {MetricFormat.Loss(latest.ValidationLoss)} | {state}";
+
+        NeuralNetwork? network = session.CurrentNetwork;
+        _topology.UpdateSource(network, _probeSample);
+        _boundary.UpdateNetwork(network);
+        if (_tabs.SelectedTab == _digitsPage) _digits.UpdateNetwork(network);
+        InvalidateViews();
+    }
+
+    /// <summary>Перерисовываем только видимую вкладку: тепловая карта и топология не бесплатны.</summary>
+    private void InvalidateViews()
+    {
+        if (_tabs.SelectedTab == _trainingPage)
+        {
+            _lossChart.Invalidate();
+            _metricChart.Invalidate();
+        }
+        else if (_tabs.SelectedTab == _structurePage)
+        {
+            _topology.Invalidate();
+            _boundary.Invalidate();
+        }
+    }
+
+    private string MetricTitle() => CurrentTask is { } task ? MetricFormat.Label(task.Metric) : "Metric";
+
+    private void PaintChart(Graphics g, Rectangle bounds, string title, bool isLoss)
+    {
+        var series = new List<ChartSeries>();
+        if (_controls.OverlayPrevious && _history.HasPrevious)
+        {
+            RunSeries previous = _history.Previous;
+            series.Add(new ChartSeries("train (prev)", UiTheme.PreviousRun, isLoss ? previous.TrainLoss : previous.TrainMetric));
+            series.Add(new ChartSeries("val (prev)", UiTheme.PreviousRunDim, isLoss ? previous.ValidationLoss : previous.ValidationMetric));
+        }
+
+        RunSeries current = _history.Current;
+        series.Add(new ChartSeries("train", isLoss ? UiTheme.AccentBlue : UiTheme.AccentGreen, isLoss ? current.TrainLoss : current.TrainMetric));
+        series.Add(new ChartSeries("val", isLoss ? UiTheme.AccentOrange : UiTheme.AccentGold, isLoss ? current.ValidationLoss : current.ValidationMetric));
+        ChartPainter.Draw(g, bounds, title, series);
+    }
+
+    private static TabPage CreatePage(string title) =>
+        new(title) { BackColor = UiTheme.Background, UseVisualStyleBackColor = false };
 }
